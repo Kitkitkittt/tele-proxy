@@ -1,6 +1,7 @@
 import { BaseExecutor } from "./base.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { PROVIDERS } from "../config/providers.js";
+import { withGenerationDispatch, assertNativePolicySupported } from "../services/dispatchContext.js";
 
 // Trae executor — SOLO remote agent API.
 //
@@ -118,12 +119,12 @@ export default class TraeExecutor extends BaseExecutor {
       auto_create_project: false,
       origin: "web",
     };
-    const res = await proxyAwareFetch(`${this.base()}/chat_sessions`, {
+    const res = await withGenerationDispatch({ provider: this.provider, model, body, signal, transport: "trae-http" }, () => proxyAwareFetch(`${this.base()}/chat_sessions`, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
       signal,
-    }, null);
+    }, null));
     const text = await res.text();
     if (!res.ok) throw new Error(`[${res.status}] ${text}`);
     const json = JSON.parse(text);
@@ -174,6 +175,8 @@ export default class TraeExecutor extends BaseExecutor {
   }
 
   async execute({ model, body, stream, credentials, signal }) {
+    // Native SOLO query flattens trusted system messages into user text.
+    assertNativePolicySupported({ policySupported: false, transport: "trae-http" });
     const headers = this.buildHeaders(credentials, stream !== false);
     const psd = credentials?.providerSpecificData || {};
     const query = flattenQuery(body?.messages || []);

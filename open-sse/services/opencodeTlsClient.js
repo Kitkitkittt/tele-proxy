@@ -12,6 +12,7 @@
 // fetch and stays subject to the gate rather than failing the request here.
 
 import { loadRuntimeDep } from "./lazyRuntime.js";
+import { dispatchPhysicalFetch } from "./dispatchContext.js";
 
 // BoringSSL/Chrome-family cipher list the upstream accepts, in the order Bun
 // sends it. Only the list's hash is compared, so this must stay verbatim.
@@ -97,12 +98,14 @@ export async function opencodeTlsFetch(url, init = {}, { signal, timeoutMs = DEF
   if (init.body !== undefined) options.body = init.body;
   if (signal) options.signal = signal;
 
-  const res = await session.fetch(url, options);
-  const headers = {};
-  res.headers?.forEach?.((value, key) => {
-    headers[key] = value;
+  return dispatchPhysicalFetch({ signal, transport: "opencode-wreq" }, async () => {
+    const res = await session.fetch(url, options);
+    const headers = {};
+    res.headers?.forEach?.((value, key) => {
+      headers[key] = value;
+    });
+    return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
   });
-  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
 }
 
 export const __test__ = { OPENCODE_CIPHER_LIST };

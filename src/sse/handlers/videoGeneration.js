@@ -12,6 +12,8 @@ import { handleVideoProxyCore, getVideoConfig, sanitizeSecrets } from "open-sse/
 import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
+import { withGatewayRequest, executeGatewayProvider } from "@/lib/teleProxy.js";
+import { assertNativePolicySupported } from "open-sse/services/dispatchContext.js";
 
 const NO_AUTH_VIDEO_PROVIDERS = new Set(["veoaifree-web"]);
 import * as log from "../utils/logger.js";
@@ -126,6 +128,9 @@ export async function handleVideoCreate(request, action) {
     await getKeyAccessContext(request), bodyInfo.parsed?.model ? String(bodyInfo.parsed.model) : "", provider, model
   );
   if (keyAccessDenied) return keyAccessDenied;
+  const target = `${provider}/${model || "video"}`;
+  return withGatewayRequest({ request, body: bodyInfo.parsed || {}, target, requestedAlias: bodyInfo.parsed?.model || target, authenticatedKey: extractApiKey(request) }, async () => {
+  assertNativePolicySupported({ policySupported: false, transport: "video-generation" });
 
   // Strip the provider prefix (e.g. "xai/grok-imagine-video") before forwarding;
   // otherwise forward the original bytes untouched.
@@ -139,7 +144,7 @@ export async function handleVideoCreate(request, action) {
 
   // noAuth providers — executor-driven generation, no credential needed
   if (NO_AUTH_VIDEO_PROVIDERS.has(provider)) {
-    const result = await handleVideoProxyCore({
+    const result = await executeGatewayProvider({ provider, model, signal: request.signal }, () => handleVideoProxyCore({
       provider,
       action,
       rawBody: forwardBody,
@@ -148,7 +153,7 @@ export async function handleVideoCreate(request, action) {
       credentials: null,
       signal: request.signal,
       log,
-    });
+    }));
     if (result.success) return result.response;
     return errorResponse(result.status || HTTP_STATUS.BAD_GATEWAY, result.error || "Video generation failed");
   }
@@ -174,7 +179,7 @@ export async function handleVideoCreate(request, action) {
 
     const refreshedCredentials = await checkAndRefreshToken(provider, credentials);
 
-    const result = await handleVideoProxyCore({
+    const result = await executeGatewayProvider({ provider, model, connectionId: credentials.connectionId, signal: request.signal }, () => handleVideoProxyCore({
       provider,
       action,
       rawBody: forwardBody,
@@ -193,7 +198,7 @@ export async function handleVideoCreate(request, action) {
           testStatus: "active",
         });
       },
-    });
+    }));
 
     if (result.success) {
       await clearAccountError(credentials.connectionId, credentials, model);
@@ -215,6 +220,7 @@ export async function handleVideoCreate(request, action) {
 
     return result.response;
   }
+  });
 }
 
 /**

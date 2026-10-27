@@ -12,6 +12,7 @@
 // responses, not chunked streams.
 
 import { BaseExecutor } from "./base.js";
+import { assertNativePolicySupported, reportUnsupportedDispatch } from "../services/dispatchContext.js";
 import { SSE_DONE, SSE_HEADERS_NO_BUFFER } from "../utils/sseConstants.js";
 import { isMissingBrowserExecutable, resolveSystemChromeExecutable, launchChromiumWithFallback } from "./browserExecutableCheck.js";
 import { loadRuntimeDep } from "../services/lazyRuntime.js";
@@ -61,7 +62,6 @@ function formatChatCompletion(content, model, finishReason = "stop") {
     created: Math.floor(Date.now() / 1000),
     model,
     choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: finishReason, logprobs: null }],
-    usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
   };
 }
 
@@ -418,6 +418,7 @@ export class GeminiWebExecutor extends BaseExecutor {
   }
 
   async execute({ model, body, stream, credentials, signal, log }) {
+    assertNativePolicySupported({ policySupported: false, transport: "browser-gemini" });
     const requestBody = body || {};
 
     // The current Gemini web client is agentic: it only uses its own built-in
@@ -586,6 +587,8 @@ export class GeminiWebExecutor extends BaseExecutor {
       // the 30s response-wait timeout.
       await page.keyboard.insertText(prompt);
       await page.waitForTimeout(300);
+      assertNativePolicySupported({ policySupported: false, transport: "browser-gemini" });
+      reportUnsupportedDispatch({ transport: "browser-gemini", reason: "generation-boundary-unavailable" });
       await page.keyboard.press("Enter");
 
       // Reply capture is DOM-based (see ./gemini-web/domCapture.js): the
@@ -753,6 +756,7 @@ export class GeminiWebExecutor extends BaseExecutor {
    * @returns {Promise<Array<{ b64: string, mime: string, width?: number, height?: number }>>}
    */
   async generateMedia({ prompt, n = 1, size, credentials, signal, log }) {
+    assertNativePolicySupported({ policySupported: false, transport: "browser-gemini" });
     if (!prompt) throw new Error("prompt is required for image generation");
     const cookie = resolveGeminiWebCookie(credentials);
     if (!cookie) throw new Error("Missing Gemini cookies");
@@ -772,6 +776,8 @@ export class GeminiWebExecutor extends BaseExecutor {
         await inputEl.click();
         await page.keyboard.insertText(buildImagePrompt(prompt, size));
         await page.waitForTimeout(300);
+        assertNativePolicySupported({ policySupported: false, transport: "browser-gemini" });
+        reportUnsupportedDispatch({ transport: "browser-gemini", reason: "generation-boundary-unavailable" });
         await page.keyboard.press("Enter");
         const media = await waitForGeminiImage(page, { signal });
         results.push(media);

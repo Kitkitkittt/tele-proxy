@@ -4,6 +4,7 @@
 // JWT is minted from Clerk per request; the account uid comes from the minted
 // token's claims. Ported from OmniRoute's uc persona paths.
 import { BaseExecutor } from "./base.js";
+import { assertNativePolicySupported, withGenerationDispatch } from "../services/dispatchContext.js";
 
 const UC_ORIGIN = "https://uncensored.com";
 const UC_CLERK_FAPI = "https://clerk.uncensored.com";
@@ -338,6 +339,7 @@ export class UcWebExecutor extends BaseExecutor {
   async generateMedia({ prompt, kind = "image", size, model, duration, resolution, images, credentials, signal, log }) {
     if (kind !== "image" && kind !== "video") throw new Error("uc-web supports image and video generation only");
     if (!prompt?.trim()) throw new Error("prompt is required");
+    assertNativePolicySupported({ transport: "uc-media", policySupported: false });
 
     const cookieHeader = String(credentials?.apiKey || "");
     const { jwt, uid, rotatedClient } = await mintSession(cookieHeader, signal);
@@ -367,7 +369,8 @@ export class UcWebExecutor extends BaseExecutor {
         const want = String(resolution || "").toLowerCase();
         body.resolution = spec.resolutions.includes(want) ? want : spec.resolutions[0];
       }
-      const res = await fetch(UC_IMAGE_URL, { method: "POST", headers, body: JSON.stringify(body), signal });
+      const res = await withGenerationDispatch({ transport: "uc-media", policySupported: false, signal }, () =>
+        fetch(UC_IMAGE_URL, { method: "POST", headers, body: JSON.stringify(body), signal }));
       if (!res.ok) {
         const detail = (await res.text().catch(() => "")).slice(0, 200);
         throw Object.assign(new Error(`UC image request failed (HTTP ${res.status}) ${detail}`), { status: res.status });
@@ -439,7 +442,8 @@ export class UcWebExecutor extends BaseExecutor {
       videoBody.media_blob_name = signed.blob_name;
     }
 
-    const genRes = await fetch(UC_VIDEO_URL, { method: "POST", headers, body: JSON.stringify(videoBody), signal });
+    const genRes = await withGenerationDispatch({ transport: "uc-media", policySupported: false, signal }, () =>
+      fetch(UC_VIDEO_URL, { method: "POST", headers, body: JSON.stringify(videoBody), signal }));
     if (!genRes.ok) {
       const detail = (await genRes.text().catch(() => "")).slice(0, 200);
       throw Object.assign(new Error(`UC video request failed (HTTP ${genRes.status}) ${detail}`), { status: genRes.status });

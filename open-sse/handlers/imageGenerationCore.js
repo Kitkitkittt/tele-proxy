@@ -4,6 +4,7 @@ import { refreshWithRetry } from "../services/tokenRefresh.js";
 import { getExecutor } from "../executors/index.js";
 import { getImageAdapter } from "./imageProviders/index.js";
 import { urlToBase64 } from "./imageProviders/_base.js";
+import { withGenerationDispatch } from "../services/dispatchContext.js";
 
 function serializeRequestBody(requestBody) {
   if (typeof FormData !== "undefined" && requestBody instanceof FormData) return requestBody;
@@ -37,6 +38,7 @@ export async function handleImageGenerationCore({
   onCredentialsRefreshed,
   onRequestSuccess,
   onUsage,
+  signal,
 }) {
   const { provider, model } = modelInfo;
 
@@ -110,11 +112,12 @@ export async function handleImageGenerationCore({
 
   let providerResponse;
   try {
-    providerResponse = await fetch(url, {
+    providerResponse = await withGenerationDispatch({ provider, model, ...(typeof requestBody?.model === "string" ? { body: { model: requestBody.model } } : {}), signal, transport: "image-http" }, () => fetch(url, {
       method: "POST",
       headers,
       body: serializeRequestBody(requestBody),
-    });
+      signal,
+    }));
   } catch (error) {
     const errMsg = formatProviderError(error, provider, model, HTTP_STATUS.BAD_GATEWAY);
     log?.debug?.("IMAGE", `Fetch error: ${errMsg}`);
@@ -144,11 +147,12 @@ export async function handleImageGenerationCore({
         const retryBody = await adapter.buildBody(model, body);
         const retryHeaders = adapter.buildHeaders(credentials, retryBody, model, body);
         const retryUrl = adapter.buildUrl(model, credentials);
-        providerResponse = await fetch(retryUrl, {
+        providerResponse = await withGenerationDispatch({ provider, model, ...(typeof retryBody?.model === "string" ? { body: { model: retryBody.model } } : {}), signal, transport: "image-http" }, () => fetch(retryUrl, {
           method: "POST",
           headers: retryHeaders,
           body: serializeRequestBody(retryBody),
-        });
+          signal,
+        }));
       } catch {
         log?.warn?.("TOKEN", `${provider.toUpperCase()} | retry after refresh failed`);
       }

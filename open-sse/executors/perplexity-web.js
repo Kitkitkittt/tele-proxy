@@ -2,6 +2,7 @@ import { BaseExecutor } from "./base.js";
 import { PROVIDERS } from "../config/providers.js";
 import { SSE_DONE, SSE_HEADERS_NO_BUFFER } from "../utils/sseConstants.js";
 import { sseChunk } from "../utils/sse.js";
+import { assertNativePolicySupported, withGenerationDispatch } from "../services/dispatchContext.js";
 
 const PPLX_SSE_ENDPOINT = PROVIDERS["perplexity-web"].baseUrl;
 const PPLX_API_VERSION = "2.18";
@@ -394,6 +395,8 @@ export class PerplexityWebExecutor extends BaseExecutor {
   }
 
   async execute({ model, body, stream, credentials, signal, log }) {
+    // Native query text cannot retain trusted system/instructions roles.
+    assertNativePolicySupported({ policySupported: false, transport: "http" });
     const messages = body?.messages;
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       const errResp = new Response(JSON.stringify({
@@ -455,7 +458,10 @@ export class PerplexityWebExecutor extends BaseExecutor {
 
     let response;
     try {
-      response = await fetch(PPLX_SSE_ENDPOINT, fetchOptions);
+      response = await withGenerationDispatch(
+        { provider: this.provider, model, body: pplxBody, transport: "http" },
+        () => fetch(PPLX_SSE_ENDPOINT, fetchOptions),
+      );
     } catch (err) {
       log?.error?.("PPLX-WEB", `Fetch failed: ${err.message || String(err)}`);
       const errResp = new Response(JSON.stringify({

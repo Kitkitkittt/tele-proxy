@@ -6,6 +6,7 @@ import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, v
 import { CSS } from "@dnd-kit/utilities";
 import { restrictToVerticalAxis, restrictToParentElement } from "@dnd-kit/modifiers";
 import { Card, Button, Modal, Input, CardSkeleton, ModelSelectModal, ConfirmModal, CapacityBadges, Select, Toggle, Badge, SmartPolicyModal } from "@/shared/components";
+import ComboPolicyEditor from "@/shared/components/ComboPolicyEditor";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { useModelCaps } from "@/shared/hooks/useModelCaps";
 import { aggregateComboCapabilities } from "open-sse/providers/capabilities.js";
@@ -1344,6 +1345,12 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindF
               Add Model
             </button>
           </div>
+
+          {isOpen && combo?.id ? (
+            <ComboPolicyEditor key={combo.id} comboId={combo.id} />
+          ) : !isEdit ? (
+            <p className="text-xs text-text-muted">Create the combo first, then reopen Edit Combo to configure its policy.</p>
+          ) : null}
 
           {/* Actions */}
           <div className="flex flex-col gap-2 pt-1 sm:flex-row">

@@ -15,6 +15,7 @@ import { updateProviderCredentials, checkAndRefreshToken } from "../services/tok
 import { handleComboChat, getComboModelsFromData } from "open-sse/services/combo.js";
 import { getKeyAccessContext, enforceKeyAccessProvider } from "../services/keyAccess.js";
 import { assertPublicUrlResolved } from "@/shared/utils/ssrfGuard.js";
+import { assertNonGenerationComboPolicySupported } from "@/lib/comboPolicy.js";
 
 /**
  * Handle web fetch (URL extraction) request for the SSE/Next.js server.
@@ -80,14 +81,6 @@ export async function handleFetch(request) {
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid URL format");
   }
 
-  // SSRF guard: reject internal/private/metadata targets, including
-  // hostnames that merely resolve to one (DNS lookup, not just literal checks).
-  try {
-    await assertPublicUrlResolved(targetUrl);
-  } catch (err) {
-    log.warn("FETCH", "Blocked URL", { url: targetUrl });
-    return errorResponse(HTTP_STATUS.BAD_REQUEST, err.message);
-  }
 
   // Combo expansion: providerInput may be a combo name → run fallback/round-robin across providers
   const combos = await getCombos();
@@ -98,6 +91,17 @@ export async function handleFetch(request) {
   const keyAccessDenied = await enforceKeyAccessProvider(await getKeyAccessContext(request), providerInput, comboModels);
   if (keyAccessDenied) return keyAccessDenied;
   if (comboModels) {
+    try {
+      await assertNonGenerationComboPolicySupported(providerInput, "web fetch");
+    } catch (error) {
+      return errorResponse(error.status || HTTP_STATUS.BAD_REQUEST, error.code === "REQUIRED_POLICY_UNSUPPORTED"
+        ? error.message : "Combo policy could not be resolved");
+    }
+    try {
+      await assertPublicUrlResolved(targetUrl);
+    } catch (error) {
+      return errorResponse(HTTP_STATUS.BAD_REQUEST, error.message);
+    }
     const comboStrategies = settings.comboStrategies || {};
     const comboStrategy = comboStrategies[providerInput]?.fallbackStrategy || settings.comboStrategy || "fallback";
     const comboStickyLimit = settings.comboStickyRoundRobinLimit;
@@ -113,6 +117,14 @@ export async function handleFetch(request) {
     });
   }
 
+  // SSRF guard: reject internal/private/metadata targets, including
+  // hostnames that merely resolve to one (DNS lookup, not just literal checks).
+  try {
+    await assertPublicUrlResolved(targetUrl);
+  } catch (err) {
+    log.warn("FETCH", "Blocked URL", { url: targetUrl });
+    return errorResponse(HTTP_STATUS.BAD_REQUEST, err.message);
+  }
   return handleSingleProviderFetch(body, providerInput, request, apiKey, settings);
 }
 

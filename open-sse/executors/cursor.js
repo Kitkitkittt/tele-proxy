@@ -19,6 +19,7 @@ import { chatChunkSse, sseChunk } from "../utils/sse.js";
 import { FORMATS } from "../translator/formats.js";
 import { ROLE, OPENAI_BLOCK } from "../translator/schema/index.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
+import { assertNativePolicySupported, dispatchGeneration, withGenerationDispatch } from "../services/dispatchContext.js";
 import zlib from "zlib";
 import crypto from "crypto";
 
@@ -462,12 +463,12 @@ export class CursorExecutor extends BaseExecutor {
   }
 
   async makeFetchRequest(url, headers, body, signal, proxyOptions = null) {
-    const response = await proxyAwareFetch(url, {
+    const response = await withGenerationDispatch({ transport: "cursor-fetch", policySupported: false, signal }, () => proxyAwareFetch(url, {
       method: "POST",
       headers,
       body,
       signal
-    }, proxyOptions);
+    }, proxyOptions));
 
     return {
       status: response.status,
@@ -483,7 +484,7 @@ export class CursorExecutor extends BaseExecutor {
 
     const HTTP2_TIMEOUT_MS = 60000; // 60s max — prevent hung sessions
 
-    return new Promise((resolve, reject) => {
+    return dispatchGeneration({ transport: "cursor-http2", policySupported: false, signal }, () => new Promise((resolve, reject) => {
       const urlObj = new URL(url);
       const client = http2.connect(`https://${urlObj.host}`);
       const chunks = [];
@@ -532,7 +533,7 @@ export class CursorExecutor extends BaseExecutor {
 
       req.write(body);
       req.end();
-    });
+    }));
   }
 
   /**
@@ -634,6 +635,8 @@ export class CursorExecutor extends BaseExecutor {
   }
 
   async executeAgent({ model, body, stream, credentials, signal, log, proxyOptions = null }) {
+    // Both Cursor protobuf routes lose the trusted instruction role.
+    assertNativePolicySupported({ policySupported: false, transport: "cursor-http2" });
     const agentEndpoint = PROVIDER_OAUTH.cursor?.agentEndpoint;
     if (!agentEndpoint) throw new Error("Cursor AgentService endpoint is not configured");
 
@@ -671,15 +674,72 @@ export class CursorExecutor extends BaseExecutor {
       }
     }
 
+    // Decoded accounting belongs to the physical session, not the aggregate
+    // client stream: recovery can open another session after execute returns.
+    const sessionObservations = new WeakMap();
     const openAgentSession = (frameMessages) => {
-      const session = this.openAgentHttp2Stream(url, headers, requestController.signal);
-      session.write(buildAgentRunFrame(frameMessages, runModel, tools, body.reasoning_effort || body.reasoning?.effort));
-      return session;
+      let observer;
+      return dispatchGeneration({
+        transport: "cursor-http2", policySupported: false, signal: requestController.signal,
+        observeNative(value) { observer = value; },
+      }, async () => {
+        const session = this.openAgentHttp2Stream(url, headers, requestController.signal);
+        let observation;
+        if (observer) {
+          let settled = false;
+          let sawContent = false;
+          const notify = async (name, ...args) => {
+            try { await observer[name]?.(...args); } catch { /* Accounting must not prevent inference. */ }
+          };
+          const onAbort = () => { void observation.finish("cancelled"); };
+          observation = {
+            outputLength: 0,
+            content(event) {
+              if (settled) return;
+              if (!sawContent) {
+                sawContent = true;
+                void notify("onFirstContent");
+              }
+              this.outputLength += event.type === "tool_call"
+                ? event.value.name.length + event.value.arguments.length
+                : event.value.length;
+            },
+            async finish(status, errorClass = "stream_error") {
+              if (settled) return;
+              settled = true;
+              requestController.signal.removeEventListener("abort", onAbort);
+              if (status === "success") {
+                await notify("onUsage", estimateUsage({ ...body, messages: frameMessages }, this.outputLength, FORMATS.OPENAI), runModel);
+              }
+              await notify("onEnd", {
+                status, usageComplete: status === "success", responseModel: runModel,
+                ...(this.httpStatus ? { httpStatus: this.httpStatus } : {}),
+                ...(status === "error" ? { errorClass } : {}),
+              });
+            },
+          };
+          sessionObservations.set(session, observation);
+          requestController.signal.addEventListener("abort", onAbort, { once: true });
+          if (requestController.signal.aborted) onAbort();
+        }
+        try {
+          session.write(buildAgentRunFrame(frameMessages, runModel, tools, body.reasoning_effort || body.reasoning?.effort));
+          const headers = await session.responseHeaders;
+          const httpStatus = Number(headers[":status"] || 0);
+          if (observation) observation.httpStatus = httpStatus;
+          if (httpStatus !== 200) await observation?.finish("error", "http_error");
+          return session;
+        } catch (error) {
+          await observation?.finish(requestController.signal.aborted ? "cancelled" : "error");
+          session.close();
+          throw error;
+        }
+      });
     };
 
     let session;
     try {
-      session = openAgentSession(workingMessages);
+      session = await openAgentSession(workingMessages);
     } catch (error) {
       throw new Error(`Cursor AgentService request failed: ${error.message}`);
     }
@@ -857,7 +917,18 @@ export class CursorExecutor extends BaseExecutor {
       thinkingAcc = "";
       emittedVisible = 0;
       pending = Buffer.alloc(0);
-      await consume(onEvent);
+      const observation = sessionObservations.get(session);
+      let terminalEvent;
+      try {
+        await consume((event) => {
+          if (event.type === "text" || event.type === "thinking" || event.type === "tool_call") observation?.content(event);
+          if (event.type === "done" || event.type === "error") terminalEvent = event;
+          if (!observation || (event.type !== "done" && event.type !== "error")) onEvent(event);
+        });
+      } finally {
+        await observation?.finish(requestController.signal.aborted ? "cancelled" : terminalEvent?.type === "done" ? "success" : "error");
+      }
+      if (observation && terminalEvent) onEvent(terminalEvent);
       return { sawContent: emittedText };
     };
 
@@ -886,10 +957,11 @@ export class CursorExecutor extends BaseExecutor {
           attempt++;
           log?.info?.("CURSOR", `empty_turn on ${originalMessages.length}-message session; retry ${attempt}/${CURSOR_EMPTY_TURN_MAX_RETRIES} with tail-only frame`);
           workingMessages = tailOnlyCursorMessages(originalMessages);
-          session = openAgentSession(workingMessages);
+          session = await openAgentSession(workingMessages);
           const retryHeaders = await session.responseHeaders;
           const retryStatus = Number(retryHeaders[":status"] || 0);
           if (retryStatus !== 200) {
+            if (sessionObservations.has(session)) session.close();
             wrapped(turnError);
             return result;
           }
@@ -1010,6 +1082,7 @@ export class CursorExecutor extends BaseExecutor {
   }
 
   async execute({ model, body, stream, credentials, signal, log, proxyOptions = null }) {
+    assertNativePolicySupported({ policySupported: false, transport: "cursor-protobuf" });
     if (isAgentCapableRequest(body)) {
       try {
         return await this.executeAgent({ model, body, stream, credentials, signal, log, proxyOptions });

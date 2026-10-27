@@ -3,6 +3,7 @@ import { HTTP_STATUS } from "../config/runtimeConfig.js";
 import { refreshTokenByProvider } from "../services/tokenRefresh.js";
 import { PROVIDER_MEDIA } from "../providers/index.js";
 import { getVideoAdapter } from "./videoProviders/index.js";
+import { dispatchGeneration, reportUnsupportedDispatch, withDispatchMetadata } from "../services/dispatchContext.js";
 
 // Upstream fetch deadline for video job submission/polling (the job itself is
 // async upstream — this only bounds the HTTP round-trip, not video rendering).
@@ -171,7 +172,10 @@ export async function handleVideoProxyCore({
     !requestId &&
     (action === "generations" || action === "edits")
   ) {
-    return executeExecutorDrivenVideo({ provider, rawBody, credentials, signal, log, onCredentialsRefreshed });
+    if (!["grok-web", "uc-web", "veoaifree-web"].includes(provider)) {
+      reportUnsupportedDispatch({ provider, transport: "video-executor", reason: "generation-boundary-unavailable" });
+    }
+    return withDispatchMetadata({ provider, signal, policySupported: false }, () => executeExecutorDrivenVideo({ provider, rawBody, credentials, signal, log, onCredentialsRefreshed }));
   }
 
   const config = getVideoConfig(provider);
@@ -209,14 +213,19 @@ export async function handleVideoProxyCore({
         })
       : defaultPlan();
     if (plan.error) return { planError: plan.error };
-    return {
-      response: await fetch(plan.url, {
-        method: plan.method,
-        headers: plan.headers,
-        body: plan.body,
-        signal: fetchSignal,
-      }),
-    };
+    const send = () => fetch(plan.url, {
+      method: plan.method,
+      headers: plan.headers,
+      body: plan.body,
+      signal: fetchSignal,
+    });
+    // A Vertex poll is also POST; only a creation action submits inference.
+    const response = requestId ? await send() : await dispatchGeneration({
+      provider, model: (() => { try { return JSON.parse(rawBody)?.model; } catch { return undefined; } })(),
+      connectionId: credentials?.connectionId, signal: fetchSignal,
+      transport: "video-http", policySupported: false,
+    }, send);
+    return { response };
   };
 
   const method = requestId ? "GET" : "POST";

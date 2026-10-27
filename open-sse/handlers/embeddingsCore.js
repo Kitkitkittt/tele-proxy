@@ -3,6 +3,7 @@ import { HTTP_STATUS, FETCH_CONNECT_TIMEOUT_MS } from "../config/runtimeConfig.j
 import { getExecutor } from "../executors/index.js";
 import { refreshWithRetry } from "../services/tokenRefresh.js";
 import { getEmbeddingAdapter } from "./embeddingProviders/index.js";
+import { dispatchGeneration, getDispatchContext } from "../services/dispatchContext.js";
 
 /**
  * Core embeddings handler — orchestrator only. Provider-specific URL/headers/body/normalize
@@ -17,6 +18,7 @@ export async function handleEmbeddingsCore({
   log,
   onCredentialsRefreshed,
   onRequestSuccess,
+  signal: clientSignal,
 }) {
   const { provider, model } = modelInfo;
 
@@ -60,15 +62,17 @@ export async function handleEmbeddingsCore({
   log?.debug?.("EMBEDDINGS", `${provider.toUpperCase()} | ${model} | input_type=${Array.isArray(input) ? `array[${input.length}]` : "string"}`);
 
   let providerResponse;
+  const accountingActive = getDispatchContext() !== null;
+  const timeoutSignal = typeof AbortSignal?.timeout === "function" ? AbortSignal.timeout(FETCH_CONNECT_TIMEOUT_MS) : null;
+  const signal = accountingActive && clientSignal && timeoutSignal ? AbortSignal.any([clientSignal, timeoutSignal]) : accountingActive && clientSignal || timeoutSignal;
+  const dispatchDetails = { provider, model, requestedModel: requestBody.model || model, usageKind: "embedding", format: ["gemini", "google_ai_studio"].includes(provider) ? "gemini" : "openai", policySupported: false, transport: "embeddings-http", signal };
   try {
-    providerResponse = await fetch(url, {
+    providerResponse = await dispatchGeneration(dispatchDetails, () => fetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify(requestBody),
-      ...(typeof AbortSignal?.timeout === "function"
-        ? { signal: AbortSignal.timeout(FETCH_CONNECT_TIMEOUT_MS) }
-        : {}),
-    });
+      ...(signal ? { signal } : {}),
+    }));
   } catch (error) {
     const errMsg = formatProviderError(error, provider, model, HTTP_STATUS.BAD_GATEWAY);
     log?.debug?.("EMBEDDINGS", `Fetch error: ${errMsg}`);
@@ -96,11 +100,12 @@ export async function handleEmbeddingsCore({
       try {
         const retryHeaders = adapter.buildHeaders(credentials, ctx);
         const retryUrl = adapter.buildUrl(model, credentials, ctx);
-        providerResponse = await fetch(retryUrl, {
+        providerResponse = await dispatchGeneration(dispatchDetails, () => fetch(retryUrl, {
           method: "POST",
           headers: retryHeaders,
           body: JSON.stringify(requestBody),
-        });
+          ...(accountingActive && signal ? { signal } : {}),
+        }));
       } catch {
         log?.warn?.("TOKEN", `${provider.toUpperCase()} | retry after refresh failed`);
       }

@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
+import { applyComboPolicy, estimatePolicyTokens } from "../../open-sse/services/comboPolicy.js";
 
 import { CodexExecutor } from "../../open-sse/executors/codex.js";
 import { getModelsByProviderId } from "../../open-sse/config/providerModels.js";
@@ -52,6 +54,40 @@ describe("Codex GPT-6 Sol/Luna transport", () => {
     expect(body.parallel_tool_calls).toBe(false);
     expect(body.input).toEqual(input);
     expect(body.reasoning).toEqual({ effort: "high", context: "all_turns" });
+  });
+
+  it("preserves client and required policy instructions at the native Lite dispatch boundary on every retry", async () => {
+    const fetchMock = vi.spyOn(proxyFetchModule, "proxyAwareFetch").mockResolvedValue({ ok: true, status: 200, headers: new Map() });
+    const policyText = "Synthetic required policy.\n\nPreserve all client protocols.";
+    const policy = Object.freeze({
+      policyId: "synthetic-lite", version: 1, text: policyText,
+      hash: createHash("sha256").update(policyText).digest("hex"),
+      enabled: true, required: true, mergeMode: "append_preserve_client",
+      maxInjectedTokens: 600, estimatedTokens: estimatePolicyTokens(policyText),
+    });
+    const nativeInstruction = { type: "message", role: "developer", content: [{ type: "input_text", text: "Keep the client's native tool protocol." }] };
+    const toolPrefix = { type: "additional_tools", role: "developer", tools: [{ type: "function", name: "run", parameters: { type: "object", properties: {} } }] };
+    const original = {
+      model: "gpt-6-luna", instructions: "Client top-level instructions.",
+      input: [toolPrefix, nativeInstruction, { type: "message", role: "user", content: [{ type: "input_text", text: "hello" }] }],
+      tools: null, reasoning: { effort: "high", context: "all_turns" },
+    };
+    const untouched = structuredClone(original);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await new CodexExecutor().execute({
+        model: original.model, body: applyComboPolicy(original, "openai-responses", policy), stream: true, credentials,
+      });
+      const outbound = JSON.parse(fetchMock.mock.calls[attempt][1].body);
+      const developerText = outbound.input.filter(item => item.role === "developer")
+        .flatMap(item => item.content || []).map(block => block.text || "").join("\n");
+      expect(developerText.split(policyText)).toHaveLength(2);
+      expect(developerText).toContain(original.instructions);
+      expect(outbound.input).toContainEqual(nativeInstruction);
+      expect(outbound.input.filter(item => item.type === "additional_tools")).toEqual([toolPrefix]);
+      expect(outbound.instructions).toBe("");
+      expect(outbound.reasoning).toEqual(original.reasoning);
+    }
+    expect(original).toEqual(untouched);
   });
 
   it.each(["gpt-6-sol", "gpt-6-luna"])("keeps hosted web_search available on %s", async (model) => {

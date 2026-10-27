@@ -24,6 +24,7 @@ import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
 import { BaseExecutor } from "./base.js";
+import { assertNativePolicySupported, bindDispatchContext, dispatchGeneration } from "../services/dispatchContext.js";
 
 // ─── Binary discovery ────────────────────────────────────────────────────────
 
@@ -320,6 +321,7 @@ export class DevinCliExecutor extends BaseExecutor {
   }
 
   async execute({ model, body, credentials, signal, log }) {
+    assertNativePolicySupported({ policySupported: false, transport: "devin-acp" });
     const b = body ?? {};
     const messages = Array.isArray(b.messages)
       ? b.messages
@@ -390,6 +392,7 @@ export class DevinCliExecutor extends BaseExecutor {
       }
       mcpConfigDir = null;
     };
+    let cancelPrompt = () => {};
 
     const sseStream = new ReadableStream({
       start(controller) {
@@ -420,6 +423,24 @@ export class DevinCliExecutor extends BaseExecutor {
         // Spawn in the client workspace cwd (from <cwd> env context) so built-in
         // file tools create/delete relative paths in the user's project.
         // MCP config still comes from XDG_CONFIG_HOME (throwaway), not project .devin/.
+        let nativeObserver = null;
+        let nativeEnded = false;
+        let nativeContent = false;
+        const notify = (method, value) => {
+          try { Promise.resolve(nativeObserver?.[method]?.(value)).catch(() => {}); } catch { /* accounting is fail-open */ }
+        };
+        const endNative = (status, errorClass) => {
+          if (!nativeObserver || nativeEnded) return;
+          nativeEnded = true;
+          notify("onEnd", { status, usageComplete: false, ...(errorClass ? { errorClass } : {}) });
+        };
+        cancelPrompt = () => {
+          endNative("cancelled", "cancelled");
+          finished = true;
+          signal?.removeEventListener("abort", cancelPrompt);
+          if (!child.killed) child.kill("SIGTERM");
+          cleanupMcp();
+        };
         const child = spawn(devinBin, acpArgs, {
           env,
           cwd: workspaceCwd,
@@ -432,6 +453,7 @@ export class DevinCliExecutor extends BaseExecutor {
         let stdinClosed = false;
 
         child.on("error", (err) => {
+          if (finished) return;
           spawnError = err;
           const msg =
             err.message.includes("ENOENT") || err.message.includes("not found")
@@ -444,11 +466,6 @@ export class DevinCliExecutor extends BaseExecutor {
           controller.close();
         });
 
-        if (signal) {
-          signal.addEventListener("abort", () => {
-            if (!child.killed) child.kill("SIGTERM");
-          });
-        }
 
         // ── JSON-RPC state machine ──────────────────────────────────────────
         let idCounter = 1;
@@ -459,8 +476,12 @@ export class DevinCliExecutor extends BaseExecutor {
         const responseId = `chatcmpl-devin-${Date.now()}`;
         const created = Math.floor(Date.now() / 1000);
         let roleEmitted = false;
-        let totalText = "";
         let finished = false;
+
+        if (signal) {
+          if (signal.aborted) cancelPrompt();
+          else signal.addEventListener("abort", cancelPrompt, { once: true });
+        }
 
         const sendRpc = (method, params) => {
           if (stdinClosed || child.stdin.destroyed) return;
@@ -476,6 +497,7 @@ export class DevinCliExecutor extends BaseExecutor {
         // Emit a content delta as an OpenAI-compatible SSE chunk (handles the
         // leading role chunk once).
         const emitDelta = (delta) => {
+          if (delta && !nativeContent) { nativeContent = true; notify("onFirstContent"); }
           if (!roleEmitted) {
             emit(
               `data: ${JSON.stringify({
@@ -488,7 +510,6 @@ export class DevinCliExecutor extends BaseExecutor {
             );
             roleEmitted = true;
           }
-          totalText += delta;
           emit(
             `data: ${JSON.stringify({
               id: responseId,
@@ -507,6 +528,7 @@ export class DevinCliExecutor extends BaseExecutor {
         // may only carry rawInput (title omitted). Track pending client-tool calls.
         const pendingClientTools = new Map(); // toolCallId → original tool name
         const emitToolUse = (toolName, args, toolCallId) => {
+          if (!nativeContent) { nativeContent = true; notify("onFirstContent"); }
           const argsStr = typeof args === "string" ? args : JSON.stringify(args ?? {});
           if (!roleEmitted) {
             emit(
@@ -549,6 +571,8 @@ export class DevinCliExecutor extends BaseExecutor {
         const finish = (error, finishReason = "stop") => {
           if (finished) return;
           finished = true;
+          endNative(signal?.aborted ? "cancelled" : error ? "error" : "completed", error ? "stream_error" : undefined);
+          signal?.removeEventListener("abort", cancelPrompt);
 
           if (error) {
             emit(
@@ -563,12 +587,6 @@ export class DevinCliExecutor extends BaseExecutor {
                 created,
                 model,
                 choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
-                usage: {
-                  prompt_tokens: Math.ceil(promptText.length / 4),
-                  completion_tokens: Math.ceil(totalText.length / 4),
-                  total_tokens: Math.ceil((promptText.length + totalText.length) / 4),
-                  estimated: true,
-                },
               })}\n\n`
             );
           }
@@ -597,7 +615,8 @@ export class DevinCliExecutor extends BaseExecutor {
         // ── stdout reader (NDJSON) ──────────────────────────────────────────
         let buffer = "";
 
-        child.stdout.on("data", (chunk) => {
+        child.stdout.on("data", bindDispatchContext((chunk) => {
+          if (finished) return;
           buffer += chunk.toString("utf8");
           let nl;
           // Each ACP message is a newline-terminated JSON line
@@ -640,10 +659,15 @@ export class DevinCliExecutor extends BaseExecutor {
               // Send the prompt. devin 3000.2.x expects `prompt` (a sequence),
               // not `content` — using `content` returns -32602 "missing field prompt".
               promptSent = true;
-              sendRpc("session/prompt", {
-                sessionId,
-                prompt: [{ type: "text", text: promptText }],
-              });
+              Promise.resolve().then(() => {
+                if (finished || stdinClosed || child.stdin.destroyed) return;
+                const details = { transport: "devin-acp", policySupported: false, signal, observeNative(observer) { nativeObserver = observer; } };
+                assertNativePolicySupported(details);
+                return dispatchGeneration(details, () => sendRpc("session/prompt", {
+                  sessionId,
+                  prompt: [{ type: "text", text: promptText }],
+                }));
+              }).catch((error) => finish(error.message || "Devin prompt dispatch failed"));
               continue;
             }
 
@@ -656,7 +680,6 @@ export class DevinCliExecutor extends BaseExecutor {
                 const res = msg.result || undefined;
                 const content = extractResultText(res);
                 if (content) {
-                  totalText = content;
                   emitDelta(content);
                 }
                 const stopReason = (res && res.stopReason) || "";
@@ -768,7 +791,7 @@ export class DevinCliExecutor extends BaseExecutor {
               return;
             }
           }
-        });
+        }));
 
         child.stderr.on("data", (chunk) => {
           log?.debug?.("DEVIN", `stderr: ${chunk.toString("utf8").slice(0, 200)}`);
@@ -793,6 +816,7 @@ export class DevinCliExecutor extends BaseExecutor {
           capabilities: {},
         });
       },
+      cancel() { cancelPrompt(); },
     });
 
     return {

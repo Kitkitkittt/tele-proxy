@@ -14,6 +14,8 @@ import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { saveRequestUsage } from "@/lib/usageDb.js";
+import { withGatewayRequest, executeGatewayProvider } from "@/lib/teleProxy.js";
+import { assertNativePolicySupported } from "open-sse/services/dispatchContext.js";
 
 function exactEmbeddingUsage(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw) || raw.estimated === true) return null;
@@ -88,6 +90,9 @@ export async function handleEmbeddings(request) {
   const keyAccessDenied = await enforceKeyAccessResolved(await getKeyAccessContext(request), modelStr, provider, model);
   if (keyAccessDenied) return keyAccessDenied;
 
+  return withGatewayRequest({ request, body, target: modelStr, requestedAlias: modelStr, authenticatedKey: apiKey }, async () => {
+  assertNativePolicySupported({ policySupported: false, transport: "embeddings" });
+
   if (modelStr !== `${provider}/${model}`) {
     log.info("ROUTING", `${modelStr} → ${provider}/${model}`);
   } else {
@@ -122,11 +127,12 @@ export async function handleEmbeddings(request) {
 
     const refreshedCredentials = await checkAndRefreshToken(provider, credentials);
 
-    const result = await handleEmbeddingsCore({
+    const result = await executeGatewayProvider({ provider, model, connectionId: credentials.connectionId, format: "openai" }, () => handleEmbeddingsCore({
       body: { ...body, model: `${provider}/${model}` },
       modelInfo: { provider, model },
       credentials: refreshedCredentials,
       log,
+      signal: request.signal,
       onCredentialsRefreshed: async (newCreds) => {
         await updateProviderCredentials(credentials.connectionId, {
           ...newCreds,
@@ -137,7 +143,7 @@ export async function handleEmbeddings(request) {
       onRequestSuccess: async () => {
         await clearAccountError(credentials.connectionId, credentials, model);
       }
-    });
+    }));
 
     if (result.success) {
       const usage = exactEmbeddingUsage(result.usage);
@@ -167,4 +173,5 @@ export async function handleEmbeddings(request) {
 
     return result.response;
   }
+  });
 }

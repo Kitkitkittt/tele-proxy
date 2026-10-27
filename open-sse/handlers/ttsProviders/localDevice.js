@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { reportUnsupportedDispatch } from "../../services/dispatchContext.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -69,6 +70,7 @@ async function synthesizeMacOrWin(text, voiceId) {
   const mp3Path = join(dir, "out.mp3");
   try {
     const args = voiceId ? ["-v", voiceId, "-o", aiffPath, text] : ["-o", aiffPath, text];
+    reportUnsupportedDispatch({ provider: "local-device", transport: "tts", reason: "native_transport" });
     await execFileAsync("say", args);
     await execFileAsync("ffmpeg", ["-y", "-i", aiffPath, "-codec:a", "libmp3lame", "-qscale:a", "4", mp3Path]);
     const buf = await readFile(mp3Path);

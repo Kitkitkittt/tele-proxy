@@ -3,7 +3,7 @@
 // Message contract: target text in `role: assistant` content, style/voice
 // instructions in `role: user` content. Voice is selected via the top-level
 // `audio.voice` field (NOT embedded in the model name).
-import { parseModelVoice } from "./_base.js";
+import { parseModelVoice, ttsFetch } from "./_base.js";
 
 const DEFAULT_MODEL = "mimo-v2.5-tts";
 const DEFAULT_VOICE = "mimo_default";
@@ -28,7 +28,7 @@ export async function synthesizeMiMo(text, model, apiKey, style, language) {
   const messages = [{ role: "assistant", content: text }];
   if (instructions.length) messages.unshift({ role: "user", content: instructions.join(" ") });
 
-  const res = await fetch("https://api.xiaomimimo.com/v1/chat/completions", {
+  const res = await ttsFetch("https://api.xiaomimimo.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

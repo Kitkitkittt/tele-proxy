@@ -141,8 +141,12 @@ async function flushToDatabase() {
 }
 
 export async function saveRequestDetail(detail) {
+  // Legacy detail capture includes entire proprietary requests/responses. The
+  // feature's diagnostic allowlist is separate and never stores arbitrary bodies.
+  if (process.env.TELE_PROXY_ENABLED === "1") return;
   const config = await getObservabilityConfig();
   if (!config.enabled) {return;}
+  ensureShutdownHandler();
 
   writeBuffer.push(detail);
 
@@ -220,5 +224,3 @@ function ensureShutdownHandler() {
   process.on("SIGTERM", _shutdownHandler);
   process.on("exit", _shutdownHandler);
 }
-
-ensureShutdownHandler();

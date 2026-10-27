@@ -483,14 +483,16 @@ export class CodexExecutor extends BaseExecutor {
       // Codex 0.155 carries tools and instructions as input prefix items.
       const input = Array.isArray(body.input) ? body.input : [body.input];
       const hasLitePrefix = input.some((item) => item?.type === "additional_tools");
+      const instructions = typeof body.instructions === "string" && body.instructions.trim()
+        ? body.instructions : hasLitePrefix ? null : CODEX_DEFAULT_INSTRUCTIONS;
       if (!hasLitePrefix) {
-        const instructions = typeof body.instructions === "string" && body.instructions.trim()
-          ? body.instructions : CODEX_DEFAULT_INSTRUCTIONS;
-        const prefix = [{ type: "additional_tools", role: "developer", tools: Array.isArray(body.tools) ? body.tools : [] }];
-        if (instructions) {
-          prefix.push({ type: "message", role: "developer", content: [{ type: "input_text", text: instructions }] });
-        }
-        input.unshift(...prefix);
+        input.unshift({ type: "additional_tools", role: "developer", tools: Array.isArray(body.tools) ? body.tools : [] });
+      }
+      // Existing Lite tool prefixes do not carry top-level instructions. Move
+      // explicit client/policy instructions into a trusted native message too.
+      if (instructions) {
+        const prefixEnd = input.findIndex((item) => item?.type === "additional_tools") + 1;
+        input.splice(prefixEnd, 0, { type: "message", role: "developer", content: [{ type: "input_text", text: instructions }] });
       }
       body.input = input;
       body.instructions = "";

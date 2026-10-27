@@ -6,6 +6,7 @@
 // (the adapter rejects them upstream, matching the current upstream protocol).
 
 import { BaseExecutor } from "./base.js";
+import { assertNativePolicySupported } from "../services/dispatchContext.js";
 import { randomUUID } from "node:crypto";
 import { executeChatGptWebCleanRoom, createDefaultSession, readStorageState, resolveChatGptWebChromeExecutable, buildChatGptWebOpenAiResponse } from "./chatgpt-web/adapter.js";
 import { generateChatGptWebImage } from "./chatgpt-web/imageGen.js";
@@ -84,6 +85,7 @@ export class ChatGptWebExecutor extends BaseExecutor {
   }
 
   async execute(input) {
+    assertNativePolicySupported({ policySupported: false, transport: "browser-chatgpt" });
     try {
       const http = await this.#executeHttp(input);
       if (http) return http;
@@ -182,6 +184,7 @@ export class ChatGptWebExecutor extends BaseExecutor {
    * @returns {Promise<Array<{ b64: string, mime: string }>>}
    */
   async generateMedia({ prompt, n = 1, size, credentials, signal, log }) {
+    assertNativePolicySupported({ policySupported: false, transport: "browser-chatgpt" });
     if (!prompt) throw new Error("prompt is required for image generation");
     const storageState = readStorageState(credentials);
     const providerData = credentials.providerSpecificData;

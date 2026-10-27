@@ -1,11 +1,11 @@
 // Generic config-driven TTS handlers — dispatched by ttsConfig.format.
 // Each handler accepts { baseUrl, apiKey, text, modelId, voiceId } and returns { base64, format }.
-import { responseToBase64, throwUpstreamError } from "./_base.js";
+import { responseToBase64, throwUpstreamError, ttsFetch } from "./_base.js";
 import minimaxTts from "./minimax.js";
 
 // Hyperbolic: POST { text } → { audio: base64 }
 async function hyperbolic({ baseUrl, apiKey, text }) {
-  const res = await fetch(baseUrl, {
+  const res = await ttsFetch(baseUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
     body: JSON.stringify({ text }),
@@ -19,18 +19,18 @@ async function hyperbolic({ baseUrl, apiKey, text }) {
 async function deepgram({ baseUrl, apiKey, text, modelId }) {
   const url = new URL(baseUrl);
   url.searchParams.set("model", modelId || "aura-asteria-en");
-  const res = await fetch(url.toString(), {
+  const res = await ttsFetch(url.toString(), {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Token ${apiKey}` },
     body: JSON.stringify({ text }),
-  });
+  }, url.searchParams.get("model"));
   if (!res.ok) await throwUpstreamError(res);
   return responseToBase64(res, "mp3");
 }
 
 // Nvidia NIM: POST { input: { text }, voice, model } → binary
 async function nvidia({ baseUrl, apiKey, text, modelId, voiceId }) {
-  const res = await fetch(baseUrl, {
+  const res = await ttsFetch(baseUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
     body: JSON.stringify({ input: { text }, voice: voiceId || "default", model: modelId }),
@@ -42,18 +42,18 @@ async function nvidia({ baseUrl, apiKey, text, modelId, voiceId }) {
 // HuggingFace: POST {baseUrl}/{modelId} { inputs: text } → binary
 async function huggingface({ baseUrl, apiKey, text, modelId }) {
   if (!modelId || modelId.includes("..")) throw new Error("Invalid HuggingFace model ID");
-  const res = await fetch(`${baseUrl}/${modelId}`, {
+  const res = await ttsFetch(`${baseUrl}/${modelId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
     body: JSON.stringify({ inputs: text }),
-  });
+  }, modelId);
   if (!res.ok) await throwUpstreamError(res);
   return responseToBase64(res, "wav");
 }
 
 // Fish Audio: model travels in an HTTP header, the voice is a reference_id, returns binary
 async function fishAudio({ baseUrl, apiKey, text, modelId, voiceId }) {
-  const res = await fetch(baseUrl, {
+  const res = await ttsFetch(baseUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -65,14 +65,14 @@ async function fishAudio({ baseUrl, apiKey, text, modelId, voiceId }) {
       format: "mp3",
       ...(voiceId ? { reference_id: voiceId } : {}),
     }),
-  });
+  }, modelId || "s2.1-pro-free");
   if (!res.ok) await throwUpstreamError(res);
   return responseToBase64(res, "mp3");
 }
 
 // Inworld: Basic auth, JSON { audioContent }
 async function inworld({ baseUrl, apiKey, text, modelId, voiceId }) {
-  const res = await fetch(baseUrl, {
+  const res = await ttsFetch(baseUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Basic ${apiKey}` },
     body: JSON.stringify({
@@ -90,7 +90,7 @@ async function inworld({ baseUrl, apiKey, text, modelId, voiceId }) {
 
 // Cartesia: X-API-Key header
 async function cartesia({ baseUrl, apiKey, text, modelId, voiceId }) {
-  const res = await fetch(baseUrl, {
+  const res = await ttsFetch(baseUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -111,7 +111,7 @@ async function cartesia({ baseUrl, apiKey, text, modelId, voiceId }) {
 // PlayHT: token format "userId:apiKey", voice = s3 URL
 async function playht({ baseUrl, apiKey, text, modelId, voiceId }) {
   const [userId, key] = (apiKey || ":").split(":");
-  const res = await fetch(baseUrl, {
+  const res = await ttsFetch(baseUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -133,7 +133,7 @@ async function playht({ baseUrl, apiKey, text, modelId, voiceId }) {
 
 // Coqui (local, noAuth): POST { text, speaker_id } → WAV
 async function coqui({ baseUrl, text, voiceId }) {
-  const res = await fetch(baseUrl, {
+  const res = await ttsFetch(baseUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, ...(voiceId ? { speaker_id: voiceId } : {}) }),
@@ -144,7 +144,7 @@ async function coqui({ baseUrl, text, voiceId }) {
 
 // Tortoise (local, noAuth)
 async function tortoise({ baseUrl, text, voiceId }) {
-  const res = await fetch(baseUrl, {
+  const res = await ttsFetch(baseUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, voice: voiceId || "random" }),
@@ -157,7 +157,7 @@ async function tortoise({ baseUrl, text, voiceId }) {
 async function openaiCompat({ baseUrl, apiKey, text, modelId, voiceId }) {
   const headers = { "Content-Type": "application/json" };
   if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
-  const res = await fetch(baseUrl, {
+  const res = await ttsFetch(baseUrl, {
     method: "POST",
     headers,
     body: JSON.stringify({

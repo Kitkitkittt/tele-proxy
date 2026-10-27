@@ -71,6 +71,8 @@ async function trySqlJs() {
  * @param {object} adapter
  * @returns {object} adapter with NUL-safe run/get/all
  */
+// Optional adapter.flush() is synchronous and throws on persistence failure.
+// File-backed in-memory adapters provide it; native SQLite commits need no export.
 function withNullByteSafeParams(adapter) {
   const clean = (params) => (Array.isArray(params) ? params.map(stripNullBytes) : params);
   return {

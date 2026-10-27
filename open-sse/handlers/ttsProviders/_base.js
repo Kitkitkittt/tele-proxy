@@ -1,5 +1,22 @@
 // Shared TTS helpers
 import { Buffer } from "node:buffer";
+import { getDispatchContext, withGenerationDispatch } from "../../services/dispatchContext.js";
+
+// Only synthesis calls use this hook; token, voice, model-list and download fetches do not.
+export async function ttsFetch(url, options, wireModel) {
+  const context = getDispatchContext();
+  if (!context) return fetch(url, options);
+  const signal = options?.signal ?? context.signal;
+  let model = wireModel;
+  if (!model && typeof options?.body === "string" && options.body.startsWith("{")) {
+    try {
+      const payload = JSON.parse(options.body);
+      model = payload.model ?? payload.model_id ?? payload.modelId ?? payload.voice_engine;
+    } catch { }
+  }
+  const { proxyAwareFetch } = await import("../../utils/proxyFetch.js");
+  return withGenerationDispatch({ ...(typeof model === "string" ? { requestedModel: model } : {}), signal, policySupported: false, transport: "tts-http" }, () => proxyAwareFetch(url, { ...options, signal }));
+}
 
 export const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
 

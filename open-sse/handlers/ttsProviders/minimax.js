@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { ttsFetch } from "./_base.js";
 
 function hexToBase64(audioHex) {
   const clean = typeof audioHex === "string" ? audioHex.trim() : "";
@@ -11,7 +12,7 @@ function hexToBase64(audioHex) {
 
 // MiniMax T2A HTTP: returns hex-encoded audio in non-streaming mode.
 export default async function minimaxTts({ baseUrl, apiKey, text, modelId, voiceId }) {
-  const res = await fetch(baseUrl, {
+  const res = await ttsFetch(baseUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
     body: JSON.stringify({

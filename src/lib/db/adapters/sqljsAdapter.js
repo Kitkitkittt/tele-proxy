@@ -1,4 +1,6 @@
 import fs from "node:fs";
+import { randomUUID } from "node:crypto";
+import { dirname } from "node:path";
 import initSqlJs from "sql.js";
 import { PRAGMA_SQL } from "../schema.js";
 
@@ -22,14 +24,27 @@ export async function createSqlJsAdapter(filePath) {
   const SAVE_DEBOUNCE_MS = 100;
 
   function persist() {
-    const data = db.export();
-    fs.writeFileSync(filePath, Buffer.from(data));
-    dirty = false;
+    const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
+    let fd;
+    try {
+      fd = fs.openSync(temporaryPath, "wx", 0o600);
+      fs.writeFileSync(fd, db.export());
+      fs.fsyncSync(fd);
+      fs.closeSync(fd);
+      fd = undefined;
+      fs.renameSync(temporaryPath, filePath);
+      const directory = fs.openSync(dirname(filePath), "r");
+      try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); }
+      dirty = false;
+    } finally {
+      if (fd !== undefined) fs.closeSync(fd);
+      if (fs.existsSync(temporaryPath)) fs.unlinkSync(temporaryPath);
+    }
   }
 
   function scheduleSave() {
     dirty = true;
-    if (saveTimer) clearTimeout(saveTimer);
+    clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       saveTimer = null;
       if (dirty) {
@@ -99,17 +114,27 @@ export async function createSqlJsAdapter(filePath) {
     }
   }
 
-  function close() {
-    if (saveTimer) clearTimeout(saveTimer);
+  // Explicit acknowledgement for durable consumers; unlike shutdown, errors propagate.
+  function flush() {
+    clearTimeout(saveTimer);
+    saveTimer = null;
     if (dirty) persist();
+  }
+
+  function close() {
+    flush();
+    process.off("beforeExit", onShutdown);
+    process.off("SIGINT", onShutdown);
+    process.off("SIGTERM", onShutdown);
     db.close();
   }
 
-  // Flush on shutdown
-  const flush = () => { if (dirty) try { persist(); } catch {} };
-  process.on("beforeExit", flush);
-  process.on("SIGINT", flush);
-  process.on("SIGTERM", flush);
+  const onShutdown = () => {
+    try { flush(); } catch (e) { console.error("[sqljs] save failed:", e); }
+  };
+  process.on("beforeExit", onShutdown);
+  process.on("SIGINT", onShutdown);
+  process.on("SIGTERM", onShutdown);
 
-  return { driver: "sql.js", run, get, all, exec, transaction, close, raw: db };
+  return { driver: "sql.js", run, get, all, exec, transaction, flush, close, raw: db };
 }

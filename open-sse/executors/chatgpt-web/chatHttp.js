@@ -14,6 +14,7 @@
 import { randomUUID } from "node:crypto";
 import { fetchSentinelHeaders } from "./sentinel.js";
 import { prepareToolMessages } from "../../translator/webTools.js";
+import { assertNativePolicySupported, withGenerationDispatch } from "../../services/dispatchContext.js";
 const SSE_DEADLINE_MS = 120000;
 const POLL_INTERVAL_MS = 1500;
 const POLL_TIMEOUT_MS = 180000;
@@ -161,6 +162,8 @@ function finishedAssistantText(document) {
  * @returns {Promise<{text: string, hasTools: boolean, requestedTools: Array}>}
  */
 export async function runChatGptWebHttpTurn({ baseUrl, accessToken, cookie, userAgent, body, signal, log }) {
+  // Conversation API flattens trusted roles into a user prompt.
+  assertNativePolicySupported({ policySupported: false, transport: "http" });
   if (!accessToken) throw Object.assign(new Error("ChatGPT session has no access token"), { status: 401 });
   if (signal?.aborted) throw new Error("Request aborted");
 
@@ -207,36 +210,40 @@ export async function runChatGptWebHttpTurn({ baseUrl, accessToken, cookie, user
   }
   const prepareJson = await prepare.json().catch(() => null);
 
-  const conversation = await fetchWithTimeout(`${baseUrl}/backend-api/f/conversation`, {
-    method: "POST",
-    headers: {
-      ...headers,
-      Accept: "text/event-stream",
-      "X-Conduit-Token": prepareJson?.conduit_token || "",
-      "X-Oai-Turn-Trace-Id": randomUUID(),
-    },
-    body: JSON.stringify({
-      action: "next",
-      messages: [{
-        id: randomUUID(),
-        author: { role: "user" },
-        create_time: Date.now() / 1000,
-        content: { content_type: "text", parts: [prompt] },
-        metadata: { serialization_metadata: { custom_symbol_offsets: [] } },
-      }],
-      parent_message_id: randomUUID(),
-      model: "auto",
-      client_prepare_state: "sent",
-      timezone_offset_min: 0,
-      timezone: "UTC",
-      conversation_mode: { kind: "primary_assistant" },
-      enable_message_followups: true,
-      supports_buffering: true,
-      supported_encodings: ["v1"],
-      client_contextual_info: { app_name: "chatgpt.com" },
-      force_parallel_switch: "auto",
-    }),
-  }, SSE_DEADLINE_MS + 15000, signal);
+  const transformedBody = {
+    action: "next",
+    messages: [{
+      id: randomUUID(),
+      author: { role: "user" },
+      create_time: Date.now() / 1000,
+      content: { content_type: "text", parts: [prompt] },
+      metadata: { serialization_metadata: { custom_symbol_offsets: [] } },
+    }],
+    parent_message_id: randomUUID(),
+    model: "auto",
+    client_prepare_state: "sent",
+    timezone_offset_min: 0,
+    timezone: "UTC",
+    conversation_mode: { kind: "primary_assistant" },
+    enable_message_followups: true,
+    supports_buffering: true,
+    supported_encodings: ["v1"],
+    client_contextual_info: { app_name: "chatgpt.com" },
+    force_parallel_switch: "auto",
+  };
+  const conversation = await withGenerationDispatch(
+    { provider: "chatgpt-web", body: transformedBody, transport: "http" },
+    () => fetchWithTimeout(`${baseUrl}/backend-api/f/conversation`, {
+      method: "POST",
+      headers: {
+        ...headers,
+        Accept: "text/event-stream",
+        "X-Conduit-Token": prepareJson?.conduit_token || "",
+        "X-Oai-Turn-Trace-Id": randomUUID(),
+      },
+      body: JSON.stringify(transformedBody),
+    }, SSE_DEADLINE_MS + 15000, signal),
+  );
   if (!conversation.ok) {
     throw Object.assign(new Error(`ChatGPT conversation failed (HTTP ${conversation.status})`), { status: conversation.status || 502 });
   }

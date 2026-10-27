@@ -11,6 +11,7 @@
 
 import crypto from "node:crypto";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
+import { withGenerationDispatch } from "../services/dispatchContext.js";
 
 export const ZED_WEB_BASE_URL = "https://zed.dev";
 export const ZED_CLOUD_BASE_URL = "https://cloud.zed.dev";
@@ -319,7 +320,7 @@ export async function zedLlmFetch(credentials, path, options = {}) {
   const url = zedUrl(config, "llmBaseUrl", path, ZED_LLM_BASE_URL);
   const buildRequest = async (forceRefresh) => {
     const token = await fetchZedLlmToken(credentials, { ...options, forceRefresh });
-    return proxyAwareFetch(url, {
+    const send = () => proxyAwareFetch(url, {
       ...options.fetchOptions,
       headers: {
         ...(options.fetchOptions?.headers || {}),
@@ -327,6 +328,9 @@ export async function zedLlmFetch(credentials, path, options = {}) {
       },
       signal: options.signal ?? undefined,
     });
+    return path === "/completions"
+      ? withGenerationDispatch({ provider: "zed", transport: "http" }, send)
+      : send();
   };
 
   let response = await buildRequest(false);

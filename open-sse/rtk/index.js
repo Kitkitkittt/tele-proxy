@@ -81,7 +81,7 @@ export function compressMessages(body, enabled) {
       }
     }
   } catch (e) {
-    console.warn("[RTK] compressMessages error:", e.message);
+    if (process.env.TELE_PROXY_ENABLED !== "1") console.warn("[RTK] compressMessages error:", e.message);
     return null;
   }
   return stats;
@@ -111,7 +111,7 @@ function compressKiroFormat(body, enabled) {
       }
     }
   } catch (e) {
-    console.warn("[RTK] compressKiroFormat error:", e.message);
+    if (process.env.TELE_PROXY_ENABLED !== "1") console.warn("[RTK] compressKiroFormat error:", e.message);
     return null;
   }
   return stats;

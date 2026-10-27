@@ -6,6 +6,7 @@
 
 import { randomUUID } from "node:crypto";
 import { SENTINEL_HEADERS, fetchSentinelHeaders } from "./sentinel.js";
+import { assertNativePolicySupported, withGenerationDispatch } from "../../services/dispatchContext.js";
 
 const MAX_SSE_BYTES = 16 * 1024 * 1024;
 const MAX_CONVERSATION_BYTES = 32 * 1024 * 1024;
@@ -126,54 +127,58 @@ async function runImageConversation(ctx, prompt, sizeHint, signal) {
   const conduitToken = prepareJson?.conduit_token || "";
 
   const text = sizeHint ? `${prompt} (aspect ratio ${sizeHint})` : prompt;
-  const conversation = await fetchWithTimeout(`${baseUrl}/backend-api/f/conversation`, {
-    method: "POST",
-    headers: {
-      ...headers,
-      "Content-Type": "application/json",
-      Accept: "text/event-stream",
-      "X-Conduit-Token": conduitToken,
-      "X-Oai-Turn-Trace-Id": randomUUID(),
-    },
-    body: JSON.stringify({
-      action: "next",
-      messages: [{
-        id: randomUUID(),
-        author: { role: "user" },
-        create_time: Date.now() / 1000,
-        content: { content_type: "text", parts: [text] },
-        metadata: {
-          developer_mode_connector_ids: [],
-          selected_github_repos: [],
-          selected_all_github_repos: false,
-          system_hints: ["picture_v2"],
-          serialization_metadata: { custom_symbol_offsets: [] },
-        },
-      }],
-      parent_message_id: randomUUID(),
-      model: "auto",
-      client_prepare_state: "sent",
-      timezone_offset_min: DEFAULT_TZ_OFFSET_MIN,
-      timezone: DEFAULT_TIMEZONE,
-      conversation_mode: { kind: "primary_assistant" },
-      enable_message_followups: true,
-      system_hints: ["picture_v2"],
-      supports_buffering: true,
-      supported_encodings: ["v1"],
-      client_contextual_info: {
-        is_dark_mode: false,
-        time_since_loaded: 1200,
-        page_height: 1072,
-        page_width: 1724,
-        pixel_ratio: 1.2,
-        screen_height: 1440,
-        screen_width: 2560,
-        app_name: "chatgpt.com",
+  const transformedBody = {
+    action: "next",
+    messages: [{
+      id: randomUUID(),
+      author: { role: "user" },
+      create_time: Date.now() / 1000,
+      content: { content_type: "text", parts: [text] },
+      metadata: {
+        developer_mode_connector_ids: [],
+        selected_github_repos: [],
+        selected_all_github_repos: false,
+        system_hints: ["picture_v2"],
+        serialization_metadata: { custom_symbol_offsets: [] },
       },
-      paragen_cot_summary_display_override: "allow",
-      force_parallel_switch: "auto",
-    }),
-  }, SSE_DEADLINE_MS + 15000, signal);
+    }],
+    parent_message_id: randomUUID(),
+    model: "auto",
+    client_prepare_state: "sent",
+    timezone_offset_min: DEFAULT_TZ_OFFSET_MIN,
+    timezone: DEFAULT_TIMEZONE,
+    conversation_mode: { kind: "primary_assistant" },
+    enable_message_followups: true,
+    system_hints: ["picture_v2"],
+    supports_buffering: true,
+    supported_encodings: ["v1"],
+    client_contextual_info: {
+      is_dark_mode: false,
+      time_since_loaded: 1200,
+      page_height: 1072,
+      page_width: 1724,
+      pixel_ratio: 1.2,
+      screen_height: 1440,
+      screen_width: 2560,
+      app_name: "chatgpt.com",
+    },
+    paragen_cot_summary_display_override: "allow",
+    force_parallel_switch: "auto",
+  };
+  const conversation = await withGenerationDispatch(
+    { provider: "chatgpt-web", body: transformedBody, transport: "http" },
+    () => fetchWithTimeout(`${baseUrl}/backend-api/f/conversation`, {
+      method: "POST",
+      headers: {
+        ...headers,
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+        "X-Conduit-Token": conduitToken,
+        "X-Oai-Turn-Trace-Id": randomUUID(),
+      },
+      body: JSON.stringify(transformedBody),
+    }, SSE_DEADLINE_MS + 15000, signal),
+  );
   if (!conversation.ok) {
     throw new ChatGptWebImageError(`ChatGPT conversation failed (HTTP ${conversation.status})`, conversation.status || 502);
   }
@@ -300,6 +305,8 @@ export async function generateChatGptWebImageHttp({
   signal,
   log,
 }) {
+  // Native image turns only accept a user prompt, not trusted instructions.
+  assertNativePolicySupported({ policySupported: false, transport: "http" });
   if (!accessToken) throw new ChatGptWebImageError("ChatGPT session has no access token", 401);
   if (signal?.aborted) throw new Error("Request aborted");
 

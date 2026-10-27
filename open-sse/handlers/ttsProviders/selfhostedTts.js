@@ -5,6 +5,7 @@
 // (`synthesizeViaConfig` reads `cfg.baseUrl`) and never looks at the connection,
 // which is exactly the limitation this provider exists to lift.
 import { Buffer } from "node:buffer";
+import { ttsFetch } from "./_base.js";
 
 const DEFAULT_BASE_URL = "http://localhost:8880";
 const DEFAULT_MODEL = "kokoro";
@@ -46,7 +47,7 @@ export default {
       }
     }
 
-    const res = await fetch(`${base}/v1/audio/speech`, {
+    const res = await ttsFetch(`${base}/v1/audio/speech`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

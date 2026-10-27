@@ -1,6 +1,7 @@
 import { Readable } from "stream";
 import { MEMORY_CONFIG } from "../config/runtimeConfig.js";
 import { dbg } from "./debugLog.js";
+import { dispatchPhysicalFetch, getDispatchContext } from "../services/dispatchContext.js";
 
 const originalFetch = globalThis.fetch;
 const proxyDispatchers = new Map();
@@ -21,7 +22,7 @@ async function getGotScraping() {
     _gotScraping = typeof mod.gotScraping === "function" ? mod.gotScraping : null;
     if (_gotScraping) dbg("TLS", "got-scraping loaded (browser-like JA3 enabled)");
   } catch (e) {
-    console.warn(`[ProxyFetch] got-scraping unavailable, falling back to native fetch: ${e.message}`);
+    if (process.env.TELE_PROXY_ENABLED !== "1") console.warn(`[ProxyFetch] got-scraping unavailable, falling back to native fetch: ${e.message}`);
     _gotScraping = null;
   }
   return _gotScraping;
@@ -91,7 +92,7 @@ async function tryGotScrapingFetch(url, options) {
     }
     return res;
   } catch (e) {
-    console.warn(`[ProxyFetch] got-scraping request failed, fallback to native fetch: ${e.message}`);
+    if (process.env.TELE_PROXY_ENABLED !== "1") console.warn(`[ProxyFetch] got-scraping request failed, fallback to native fetch: ${e.message}`);
     return null;
   }
 }
@@ -148,7 +149,7 @@ async function resolveRealIP(hostname) {
     DNS_CACHE.set(hostname, { ip: addresses[0], expiry: Date.now() + MEMORY_CONFIG.dnsCacheTtlMs });
     return addresses[0];
   } catch (error) {
-    console.warn(`[ProxyFetch] DNS resolve failed for ${hostname}:`, error.message);
+    if (process.env.TELE_PROXY_ENABLED !== "1") console.warn(`[ProxyFetch] DNS resolve failed for ${hostname}:`, error.message);
     return null;
   }
 }
@@ -257,7 +258,7 @@ async function fetchWithTlsFallback(url, options, proxyUrl) {
     // Keep proxy/no-proxy resolution and strict-proxy enforcement here.
     if (!proxyUrl && options.directFetch) return await options.directFetch(url, options);
     const dispatcher = proxyUrl ? await getDispatcher(proxyUrl) : undefined;
-    return await originalFetch(url, dispatcher ? { ...options, dispatcher } : options);
+    return await dispatchPhysicalFetch({ signal: options.signal, transport: proxyUrl ? "http-proxy" : "http-direct" }, () => originalFetch(url, dispatcher ? { ...options, dispatcher } : options));
   } catch (err) {
     const isStrictSsl = options.strictTls === true || process.env.STRICT_SSL === "true" || process.env.STRICT_SSL === "1";
     if (!isStrictSsl && isTlsCertError(err)) {
@@ -267,7 +268,7 @@ async function fetchWithTlsFallback(url, options, proxyUrl) {
       // ponytail: in-memory insecure agent fallback for self-signed MITM corporate/antivirus certs
       console.warn(`[ProxyFetch] TLS cert verification failed (${err.cause?.code || err.code}), retrying with insecure TLS: ${url}`);
       const insecureDispatcher = await getDispatcher(proxyUrl, true);
-      return await originalFetch(url, { ...options, dispatcher: insecureDispatcher });
+      return await dispatchPhysicalFetch({ signal: options.signal, transport: proxyUrl ? "http-proxy-tls-retry" : "http-tls-retry" }, () => originalFetch(url, { ...options, dispatcher: insecureDispatcher }));
     }
     throw err;
   }
@@ -333,6 +334,7 @@ async function createBypassRequest(parsedUrl, realIP, options) {
 }
 
 export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
+  if (!options.signal && getDispatchContext()?.signal) options = { ...options, signal: getDispatchContext().signal };
   const targetUrl = typeof url === "string" ? url : url.toString();
 
   // Vercel relay: forward request via relay headers
@@ -347,7 +349,7 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
       "x-relay-target": `${parsed.protocol}//${parsed.host}`,
       "x-relay-path": `${parsed.pathname}${parsed.search}`,
     };
-    return originalFetch(vercelRelayUrl, { ...options, headers: relayHeaders });
+    return dispatchPhysicalFetch({ signal: options.signal, transport: "http-relay" }, () => originalFetch(vercelRelayUrl, { ...options, headers: relayHeaders }));
   }
 
   const connectionProxyUrl = resolveConnectionProxyUrl(targetUrl, proxyOptions);
@@ -364,16 +366,16 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
         if (proxyOptions?.strictProxy === true) {
           throw new Error(`[ProxyFetch] Proxy required but failed (strictProxy=true): ${proxyError.message}`);
         }
-        console.warn(`[ProxyFetch] Proxy failed, falling back to direct bypass: ${proxyError.message}`);
+        if (process.env.TELE_PROXY_ENABLED !== "1") console.warn(`[ProxyFetch] Proxy failed, falling back to direct bypass: ${proxyError.message}`);
       }
     }
     // No proxy — manually resolve real IP to bypass DNS spoof
     try {
       const parsedUrl = new URL(targetUrl);
       const realIP = await resolveRealIP(parsedUrl.hostname);
-      if (realIP) return await createBypassRequest(parsedUrl, realIP, options);
+      if (realIP) return await dispatchPhysicalFetch({ signal: options.signal, transport: "http-dns-bypass" }, () => createBypassRequest(parsedUrl, realIP, options));
     } catch (error) {
-      console.warn(`[ProxyFetch] MITM bypass failed: ${error.message}`);
+      if (process.env.TELE_PROXY_ENABLED !== "1") console.warn(`[ProxyFetch] MITM bypass failed: ${error.message}`);
     }
   }
 
@@ -385,7 +387,7 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
       if (proxyOptions?.strictProxy === true) {
         throw new Error(`[ProxyFetch] Proxy required but failed (strictProxy=true): ${proxyError.message}`);
       }
-      console.warn(`[ProxyFetch] Proxy failed, falling back to direct: ${proxyError.message}`);
+      if (process.env.TELE_PROXY_ENABLED !== "1") console.warn(`[ProxyFetch] Proxy failed, falling back to direct: ${proxyError.message}`);
       return fetchWithTlsFallback(url, options, null);
     }
   }

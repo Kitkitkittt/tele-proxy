@@ -269,7 +269,7 @@ async function getServiceCookie(providerSpecificData, proxyOptions) {
     try {
       return await acquireServiceCookie(passJar, proxyOptions, apiBase, providerSpecificData?.region);
     } catch (e) {
-      console.log(`[mimoAccount] acquire threw: ${e?.message || e} | ${String(e?.stack || "").split("\n").slice(1, 4).join(" <- ")}`);
+      if (process.env.TELE_PROXY_ENABLED !== "1") console.log(`[mimoAccount] acquire threw: ${e?.message || e} | ${String(e?.stack || "").split("\n").slice(1, 4).join(" <- ")}`);
       return null; // network/parse failure — callers degrade, never throw
     } finally {
       _inflight.delete(key);
@@ -301,7 +301,7 @@ export async function getMimoAccountCookie(providerSpecificData = null, proxyOpt
     const { cookie } = await getServiceCookie(providerSpecificData, proxyOptions);
     return cookie;
   } catch (e) {
-    console.log(`[mimoAccount] getMimoAccountCookie threw: ${e?.message || e} | ${String(e?.stack || "").split("\n").slice(1, 4).join(" <- ")}`);
+    if (process.env.TELE_PROXY_ENABLED !== "1") console.log(`[mimoAccount] getMimoAccountCookie threw: ${e?.message || e} | ${String(e?.stack || "").split("\n").slice(1, 4).join(" <- ")}`);
     return null;
   }
 }

@@ -4,6 +4,8 @@ import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { dbg } from "../utils/debugLog.js";
 import { ANTHROPIC_API_VERSION, OPENAI_COMPAT_BASE, ANTHROPIC_COMPAT_BASE } from "../providers/shared.js";
 import { resolveOpenAICompatibleApiType } from "../services/provider.js";
+import { getDispatchContext, withGenerationDispatch } from "../services/dispatchContext.js";
+import { assertPolicyPayloadPreserved } from "../services/policyEligibility.js";
 
 /**
  * BaseExecutor - Base class for provider executors
@@ -126,7 +128,11 @@ export class BaseExecutor {
 
     for (let urlIndex = 0; urlIndex < fallbackCount; urlIndex++) {
       const url = this.buildUrl(model, stream, urlIndex, credentials);
-      const transformedBody = this.transformRequest(model, body, stream, credentials);
+      // Some executors mutate their input. Required-policy transforms operate on a
+      // clone so the comparison and retries retain the original translated payload.
+      const policyRequired = getDispatchContext()?.requiredPolicy === true;
+      const transformedBody = this.transformRequest(model, policyRequired ? structuredClone(body) : body, stream, credentials);
+      if (policyRequired) assertPolicyPayloadPreserved(body, transformedBody);
       const headers = this.buildHeaders(credentials, stream, url, model, transformedBody);
       // User per-provider override wins over registry headers (blocked names filtered at the API)
       if (providerOverrides?.headers) Object.assign(headers, providerOverrides.headers);
@@ -143,7 +149,7 @@ export class BaseExecutor {
         const bodyStr = JSON.stringify(transformedBody);
         const fetchT0 = Date.now();
         dbg("FETCH", `${this.provider.toUpperCase()} → ${url} | body=${bodyStr.length}B | connectTimeout=${timeoutMs}ms`);
-        const response = await proxyAwareFetch(url, {
+        const response = await withGenerationDispatch({ provider: this.provider, model, body: transformedBody, signal: mergedSignal }, () => proxyAwareFetch(url, {
           method: "POST",
           headers,
           body: bodyStr,
@@ -151,7 +157,7 @@ export class BaseExecutor {
           // Protocol adapters that need their own transport (opencode's TLS
           // fingerprint) override the direct path; proxies still take priority.
           ...(directFetch ? { directFetch } : {}),
-        }, proxyOptions);
+        }, proxyOptions));
         clearTimeout(connectTimer);
         const ct = response.headers?.get?.("content-type") || "";
         const cl = response.headers?.get?.("content-length") || "?";

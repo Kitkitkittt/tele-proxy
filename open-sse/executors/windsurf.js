@@ -2,6 +2,7 @@ import { BaseExecutor } from "./base.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { PROVIDERS } from "../config/providers.js";
 import { randomUUID } from "node:crypto";
+import { assertNativePolicySupported, withGenerationDispatch } from "../services/dispatchContext.js";
 
 // WindsurfExecutor — Codeium gRPC-web chat.
 //
@@ -397,6 +398,10 @@ export class WindsurfExecutor extends BaseExecutor {
   }
 
   async execute({ model, body, stream, credentials, signal, log, upstreamExtraHeaders, proxyOptions = null }) {
+    // Protobuf retains message roles, but not top-level system/instructions fields.
+    if (body?.system || body?.instructions) {
+      assertNativePolicySupported({ policySupported: false, transport: "http" });
+    }
     const apiKey = credentials?.accessToken || credentials?.apiKey || "";
     const wsModel = resolveWsModelId(model);
 
@@ -416,12 +421,15 @@ export class WindsurfExecutor extends BaseExecutor {
 
     log?.debug?.("WS", `Windsurf → ${wsModel} (${wsMessages.length} messages)`);
 
-    const upstream = await proxyAwareFetch(url, {
-      method: "POST",
-      headers,
-      body: framedPayload,
-      signal,
-    }, proxyOptions);
+    const upstream = await withGenerationDispatch(
+      { provider: this.provider, model, body: { model: wsModel, messages: wsMessages }, transport: "http", nativeResponse: true },
+      () => proxyAwareFetch(url, {
+        method: "POST",
+        headers,
+        body: framedPayload,
+        signal,
+      }, proxyOptions),
+    );
 
     if (!upstream.ok && upstream.status !== 200) {
       return { response: upstream, url, headers, transformedBody: protoPayload };

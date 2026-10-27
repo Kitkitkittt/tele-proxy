@@ -742,7 +742,7 @@ export class KiroExecutor extends BaseExecutor {
         } catch (error) {
           state.droppedTools = (state.droppedTools || 0) + 1;
           state.toolValidationError ||= error.message;
-          console.error(`[Kiro] dropping unusable tool call ${tool.id} (${tool.name}): ${error.message}`);
+          if (process.env.TELE_PROXY_ENABLED !== "1") console.error(`[Kiro] dropping unusable tool call ${tool.id} (${tool.name}): ${error.message}`);
           continue;
         }
         const index = state.toolCounter++;
@@ -963,7 +963,7 @@ export class KiroExecutor extends BaseExecutor {
             // Keep whatever is already buffered: the rejected fragment belongs to
             // one tool, and clearing the map dropped the complete calls too.
             state.toolValidationError ||= error.message;
-            console.error(`[Kiro] tool fragment rejected, keeping ${state.tools.size} buffered tool(s): ${error.message}`);
+            if (process.env.TELE_PROXY_ENABLED !== "1") console.error(`[Kiro] tool fragment rejected, keeping ${state.tools.size} buffered tool(s): ${error.message}`);
             continue;
           }
           fail(
@@ -1002,7 +1002,7 @@ export class KiroExecutor extends BaseExecutor {
       const declaredTruncatedAfterOutput = declaredDisposition === "terminal_incomplete" &&
         KIRO_TRUNCATION_STOP_REASONS.has(state.stopReason) && state.chunkIndex > 0;
       if (declaredTruncatedAfterOutput) {
-        console.error(`[Kiro] truncated after ${state.chunkIndex} chunk(s) (stop_reason=${state.stopReason}); keeping output`);
+        if (process.env.TELE_PROXY_ENABLED !== "1") console.error(`[Kiro] truncated after ${state.chunkIndex} chunk(s) (stop_reason=${state.stopReason}); keeping output`);
       }
       if (!declaredTruncatedAfterOutput && ["retryable_protocol_failure", "terminal_incomplete", "terminal_refusal", "unknown_failure"].includes(declaredDisposition)) {
         const code = declaredDisposition === "retryable_protocol_failure"
@@ -1067,7 +1067,7 @@ export class KiroExecutor extends BaseExecutor {
       const truncatedAfterOutput = disposition === "terminal_incomplete" &&
         KIRO_TRUNCATION_STOP_REASONS.has(state.stopReason) && state.chunkIndex > 0;
       if (truncatedAfterOutput) {
-        console.error(`[Kiro] truncated after ${state.chunkIndex} chunk(s) (stop_reason=${state.stopReason}); closing as length`);
+        if (process.env.TELE_PROXY_ENABLED !== "1") console.error(`[Kiro] truncated after ${state.chunkIndex} chunk(s) (stop_reason=${state.stopReason}); closing as length`);
       }
       if (!truncatedAfterOutput && ["retryable_protocol_failure", "terminal_incomplete", "terminal_refusal", "unknown_failure"].includes(disposition)) {
         const code = disposition === "retryable_protocol_failure"

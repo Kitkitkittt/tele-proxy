@@ -3,6 +3,9 @@ import { HTTP_STATUS, FETCH_CONNECT_TIMEOUT_MS } from "../config/runtimeConfig.j
 import { PROVIDER_MEDIA } from "../providers/index.js";
 import { getModelUpstreamId } from "../config/providerModels.js";
 import { generateSessionId } from "../executors/opencode-zen.js";
+import { withGenerationDispatch } from "../services/dispatchContext.js";
+import { isPolicyOrCancellationError } from "../services/policyEligibility.js";
+import { proxyAwareFetch } from "../utils/proxyFetch.js";
 
 const OPENCODE_PROVIDERS = new Set(["opencode", "opencode-zen"]);
 
@@ -36,6 +39,7 @@ export async function handleSystemoneCore({
   credentials,
   log,
   onRequestSuccess,
+  signal,
 }) {
   const { provider, model } = modelInfo;
   const cfg = PROVIDER_MEDIA[provider]?.systemoneConfig;
@@ -85,15 +89,21 @@ export async function handleSystemoneCore({
 
   let providerResponse;
   try {
-    providerResponse = await fetch(targetUrl, {
+    const timeoutSignal = typeof AbortSignal?.timeout === "function"
+      ? AbortSignal.timeout(FETCH_CONNECT_TIMEOUT_MS) : null;
+    const fetchSignal = signal && timeoutSignal ? AbortSignal.any([signal, timeoutSignal]) : signal || timeoutSignal;
+    providerResponse = await withGenerationDispatch({
+      provider, model, body: requestBody, signal: fetchSignal, format: "systemone",
+      // Native decision requests have no trusted system/developer instruction surface.
+      policySupported: false,
+    }, () => proxyAwareFetch(targetUrl, {
       method: "POST",
       headers,
       body: JSON.stringify(requestBody),
-      ...(typeof AbortSignal?.timeout === "function"
-        ? { signal: AbortSignal.timeout(FETCH_CONNECT_TIMEOUT_MS) }
-        : {}),
-    });
+      ...(fetchSignal ? { signal: fetchSignal } : {}),
+    }));
   } catch (error) {
+    if (isPolicyOrCancellationError(error) || signal?.aborted) throw error;
     const errMsg = formatProviderError(error, provider, model, HTTP_STATUS.BAD_GATEWAY);
     log?.debug?.("SYSTEMONE", `Fetch error: ${errMsg}`);
     return createErrorResult(HTTP_STATUS.BAD_GATEWAY, errMsg);
@@ -109,7 +119,8 @@ export async function handleSystemoneCore({
   let responseBody;
   try {
     responseBody = await providerResponse.json();
-  } catch {
+  } catch (error) {
+    if (isPolicyOrCancellationError(error) || signal?.aborted) throw error;
     return createErrorResult(HTTP_STATUS.BAD_GATEWAY, `Invalid JSON response from ${provider}`);
   }
 

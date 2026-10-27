@@ -157,6 +157,10 @@ export default function ComboFormModal({ isOpen, combo, onClose, onSave, activeP
             </button>
           </div>
 
+          {!isEdit && (
+            <p className="text-xs text-text-muted">Create the combo first, then reopen Edit Combo in the Combos dashboard to configure its policy.</p>
+          )}
+
           <div className="flex flex-col gap-2 pt-1 sm:flex-row">
             <Button onClick={onClose} variant="ghost" fullWidth size="sm">Cancel</Button>
             <Button onClick={handleSave} fullWidth size="sm" disabled={!name.trim() || !!nameError || saving}>

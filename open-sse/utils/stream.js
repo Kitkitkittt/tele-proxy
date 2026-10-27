@@ -575,7 +575,7 @@ export function createSSEStream(options = {}) {
 
         finalizeStream();
       } catch (error) {
-        console.log("Error in flush:", error);
+        if (process.env.TELE_PROXY_ENABLED !== "1") console.log("Error in flush:", error);
         finalizeStream();
       }
     }

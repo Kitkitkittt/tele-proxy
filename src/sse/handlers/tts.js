@@ -11,6 +11,8 @@ import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import { AI_PROVIDERS } from "@/shared/constants/providers";
 import { handleComboChat } from "open-sse/services/combo.js";
 import * as log from "../utils/logger.js";
+import { resolveGatewayTarget, withGatewayRequest } from "@/lib/teleProxy";
+import { assertNativePolicySupported } from "open-sse/services/dispatchContext.js";
 
 // Derived from providers.js: any TTS provider not noAuth requires stored credentials
 const CREDENTIALED_PROVIDERS = new Set(
@@ -28,7 +30,8 @@ export async function handleTts(request) {
   }
 
   const url = new URL(request.url);
-  const modelStr = body.model;
+  const requestedAlias = body.model;
+  const modelStr = await resolveGatewayTarget(body, requestedAlias);
   const responseFormat = url.searchParams.get("response_format") || body.response_format || "mp3"; // mp3 (default) | json
   const language = body.language || ""; // Optional language hint (currently used by Gemini)
   const style = body.style || ""; // Optional style/voice instructions (e.g. Xiaomi MiMo)
@@ -49,28 +52,30 @@ export async function handleTts(request) {
   const keyAccessDenied = await enforceKeyAccess(await getKeyAccessContext(request), modelStr);
   if (keyAccessDenied) return keyAccessDenied;
 
-  // Combo expansion: model may be a combo name → run fallback/round-robin across models
-  const comboModels = await getComboModels(modelStr);
-  if (comboModels) {
-    const comboStrategies = settings.comboStrategies || {};
-    const comboStrategy = comboStrategies[modelStr]?.fallbackStrategy || settings.comboStrategy || "fallback";
-    const comboStickyLimit = settings.comboStickyRoundRobinLimit;
-    log.info("TTS", `Combo "${modelStr}" with ${comboModels.length} models (strategy: ${comboStrategy}, sticky: ${comboStickyLimit})`);
-    return handleComboChat({
-      body,
-      models: comboModels,
-      handleSingleModel: (b, m) => handleSingleModelTts(b, m, responseFormat, language, style),
-      log,
-      comboName: modelStr,
-      comboStrategy,
-      comboStickyLimit,
-    });
-  }
-
-  return handleSingleModelTts(body, modelStr, responseFormat, language, style);
+  return withGatewayRequest({ request, body, target: modelStr, requestedAlias, authenticatedKey: extractApiKey(request) }, async () => {
+    // Speech input is untrusted content, not a native system-instruction channel.
+    assertNativePolicySupported({ policySupported: false, transport: "tts" });
+    const comboModels = await getComboModels(modelStr);
+    if (comboModels) {
+      const comboStrategies = settings.comboStrategies || {};
+      const comboStrategy = comboStrategies[modelStr]?.fallbackStrategy || settings.comboStrategy || "fallback";
+      const comboStickyLimit = settings.comboStickyRoundRobinLimit;
+      log.info("TTS", `Combo "${modelStr}" with ${comboModels.length} models (strategy: ${comboStrategy}, sticky: ${comboStickyLimit})`);
+      return handleComboChat({
+        body,
+        models: comboModels,
+        handleSingleModel: (b, m) => handleSingleModelTts(b, m, responseFormat, language, style, request.signal),
+        log,
+        comboName: modelStr,
+        comboStrategy,
+        comboStickyLimit,
+      });
+    }
+    return handleSingleModelTts(body, modelStr, responseFormat, language, style, request.signal);
+  });
 }
 
-async function handleSingleModelTts(body, modelStr, responseFormat, language, style) {
+async function handleSingleModelTts(body, modelStr, responseFormat, language, style, signal) {
   const modelInfo = await getModelInfo(modelStr);
   if (!modelInfo.provider) return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid model format");
 
@@ -79,7 +84,7 @@ async function handleSingleModelTts(body, modelStr, responseFormat, language, st
 
   // noAuth providers — no credential needed
   if (!CREDENTIALED_PROVIDERS.has(provider)) {
-    const result = await handleTtsCore({ provider, model, input: body.input, responseFormat, language, style });
+    const result = await handleTtsCore({ provider, model, input: body.input, responseFormat, language, style, signal });
     if (result.success) return result.response;
     return errorResponse(result.status || HTTP_STATUS.BAD_GATEWAY, result.error || "TTS failed");
   }
@@ -100,7 +105,7 @@ async function handleSingleModelTts(body, modelStr, responseFormat, language, st
       }
       if (excludeConnectionIds.size === 0) {
         if (provider === "ollama-local") {
-          const result = await handleTtsCore({ provider, model, input: body.input, credentials: null, responseFormat, language, style });
+          const result = await handleTtsCore({ provider, model, input: body.input, credentials: null, responseFormat, language, style, signal });
           if (result.success) return result.response;
           return errorResponse(result.status || HTTP_STATUS.BAD_GATEWAY, result.error || "TTS failed");
         }
@@ -111,7 +116,7 @@ async function handleSingleModelTts(body, modelStr, responseFormat, language, st
 
     log.info("AUTH", `\x1b[32mUsing ${provider} account: ${credentials.connectionName}\x1b[0m`);
 
-    const result = await handleTtsCore({ provider, model, input: body.input, credentials, responseFormat, language, style });
+    const result = await handleTtsCore({ provider, model, input: body.input, credentials, responseFormat, language, style, signal });
 
     if (result.success) return result.response;
 

@@ -2,7 +2,7 @@
 const isNode = typeof process !== "undefined" && process.versions?.node && typeof window === "undefined";
 
 // Check if logging is enabled via environment variable (default: false)
-const LOGGING_ENABLED = typeof process !== "undefined" && process.env?.ENABLE_REQUEST_LOGS === 'true';
+const LOGGING_ENABLED = typeof process !== "undefined" && process.env?.TELE_PROXY_ENABLED !== "1" && process.env?.ENABLE_REQUEST_LOGS === 'true';
 
 let fs = null;
 let path = null;
@@ -69,25 +69,12 @@ function writeJsonFile(sessionPath, filename, data) {
   }
 }
 
-// Mask sensitive data in headers (DISABLED - keep full token for testing)
+// Credentials are never useful diagnostics, including legacy opt-in captures.
 function maskSensitiveHeaders(headers) {
   if (!headers) return {};
-  return { ...headers };
-  
-  // Old masking code (disabled):
-  // const masked = { ...headers };
-  // const sensitiveKeys = ["authorization", "x-api-key", "cookie", "token"];
-  // 
-  // for (const key of Object.keys(masked)) {
-  //   const lowerKey = key.toLowerCase();
-  //   if (sensitiveKeys.some(sk => lowerKey.includes(sk))) {
-  //     const value = masked[key];
-  //     if (value && value.length > 20) {
-  //       masked[key] = value.slice(0, 10) + "..." + value.slice(-5);
-  //     }
-  //   }
-  // }
-  // return masked;
+  return Object.fromEntries(Object.entries(headers).filter(([name]) =>
+    !["authorization", "key", "cookie", "token", "secret"].some((part) => name.toLowerCase().includes(part))
+  ));
 }
 
 // No-op logger when logging is disabled
@@ -232,7 +219,7 @@ export async function createRequestLogger(sourceFormat, targetFormat, model) {
 export function logRequest() {}
 export function logResponse() {}
 export function logError(provider, { error, url, model, requestBody }) {
-  if (!fs || !LOGS_DIR) return;
+  if (process.env.TELE_PROXY_ENABLED === "1" || !fs || !LOGS_DIR) return;
   
   try {
     if (!fs.existsSync(LOGS_DIR)) {

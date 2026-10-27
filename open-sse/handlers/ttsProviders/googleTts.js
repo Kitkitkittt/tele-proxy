@@ -1,5 +1,5 @@
 // Google Translate TTS (no auth) — scrape token + batchexecute RPC
-import { UA } from "./_base.js";
+import { UA, ttsFetch } from "./_base.js";
 
 const REFRESH_MS = 11 * 60 * 1000;
 const cache = { token: null, tokenTime: 0 };
@@ -39,7 +39,7 @@ export default {
     const payload = [cleanText, lang, null, "undefined", [0]];
     const body = new URLSearchParams();
     body.append("f.req", JSON.stringify([[[rpcId, JSON.stringify(payload), null, "generic"]]]));
-    const res = await fetch(`https://translate.google.com/_/TranslateWebserverUi/data/batchexecute?${query}`, {
+    const res = await ttsFetch(`https://translate.google.com/_/TranslateWebserverUi/data/batchexecute?${query}`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded", "Referer": "https://translate.google.com/" },
       body: body.toString(),

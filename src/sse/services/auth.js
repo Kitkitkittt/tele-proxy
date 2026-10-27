@@ -271,7 +271,7 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
   }
   if (!shouldFallback) return { shouldFallback: false, cooldownMs: 0 };
 
-  const reason = typeof errorText === "string" ? errorText.slice(0, 200) : "Provider error";
+  const reason = process.env.TELE_PROXY_ENABLED === "1" ? `Upstream HTTP ${Number(status) || 502}` : typeof errorText === "string" ? errorText.slice(0, 200) : "Provider error";
   const lockUpdate = buildModelLockUpdate(githubResetAtMs ? null : model, cooldownMs);
 
   await updateProviderConnection(connectionId, {
@@ -287,7 +287,7 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
   const connName = conn?.displayName || conn?.name || conn?.email || connectionId.slice(0, 8);
   log.warn("AUTH", `${connName} locked ${lockKey} for ${Math.round(cooldownMs / 1000)}s [${status}]`);
 
-  if (provider && status && reason) {
+  if (process.env.TELE_PROXY_ENABLED !== "1" && provider && status && reason) {
     console.error(`❌ ${provider} [${status}]: ${reason}`);
   }
 

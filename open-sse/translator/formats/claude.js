@@ -9,6 +9,7 @@ import { PROVIDERS } from "../../providers/index.js";
 import { getCapabilitiesForModel } from "../../providers/capabilities.js";
 import { isDeepSeekModel } from "../../providers/models/helpers.js";
 import { DEFAULT_MAX_TOKENS } from "../../config/runtimeConfig.js";
+import { getDispatchContext } from "../../services/dispatchContext.js";
 
 const CACHE_CONTROL_5M = { type: "ephemeral" };
 const CACHE_CONTROL_1H = { type: "ephemeral", ttl: "1h" };
@@ -62,7 +63,7 @@ export function hasValidContent(msg) {
 function normalizeMessageContent(msg) {
   const c = msg?.content;
   if (c && typeof c === "object" && !Array.isArray(c)) {
-    delete c.cache_control;
+    if (getDispatchContext()?.requiredPolicy !== true) delete c.cache_control;
     msg.content = [c];
   }
   return msg;
@@ -394,6 +395,8 @@ function markFinalToolResults(body) {
 // (normalize, tool dedupe, token savers) — otherwise the anchor drifts off the tail.
 export function anchorClaudeCache(body) {
   if (!body || typeof body !== "object") return body;
+  // Required policies preserve the client's cache boundaries exactly.
+  if (getDispatchContext()?.requiredPolicy === true) return body;
   if (Array.isArray(body.messages)) {
     for (const msg of body.messages) normalizeMessageContent(msg);
   }
@@ -547,7 +550,7 @@ export function prepareClaudeRequest(body, provider = null, apiKey = null, conne
   }
 
   // 1. System: remove all cache_control, add only to last block with ttl 1h
-  if (body.system && Array.isArray(body.system)) {
+  if (getDispatchContext()?.requiredPolicy !== true && body.system && Array.isArray(body.system)) {
     body.system = body.system.map((block, i) => {
       const { cache_control, ...rest } = block;
       if (i === body.system.length - 1) {
@@ -569,7 +572,7 @@ export function prepareClaudeRequest(body, provider = null, apiKey = null, conne
       normalizeMessageContent(msg);
 
       // Remove cache_control from content blocks
-      if (Array.isArray(msg.content)) {
+      if (getDispatchContext()?.requiredPolicy !== true && Array.isArray(msg.content)) {
         for (const block of msg.content) {
           delete block.cache_control;
         }
@@ -610,7 +613,7 @@ export function prepareClaudeRequest(body, provider = null, apiKey = null, conne
       if (msg.role === "assistant" && Array.isArray(msg.content)) {
         // Add cache_control to last non-thinking block of first (from end) assistant with content
         // thinking/redacted_thinking blocks do not support cache_control
-        if (!lastAssistantProcessed && msg.content.length > 0) {
+        if (getDispatchContext()?.requiredPolicy !== true && !lastAssistantProcessed && msg.content.length > 0) {
           for (let j = msg.content.length - 1; j >= 0; j--) {
             const block = msg.content[j];
             if (block.type !== CLAUDE_BLOCK.THINKING && block.type !== CLAUDE_BLOCK.REDACTED_THINKING) {
@@ -709,13 +712,15 @@ export function prepareClaudeRequest(body, provider = null, apiKey = null, conne
     }
 
     const lastCacheable = lastCacheableToolIndex(body.tools);
-    body.tools = body.tools.map((tool, i) => {
-      const { cache_control, ...rest } = tool;
-      if (i === lastCacheable) {
-        return { ...rest, cache_control: { type: "ephemeral", ttl: "1h" } };
-      }
-      return rest;
-    });
+    if (getDispatchContext()?.requiredPolicy !== true) {
+      body.tools = body.tools.map((tool, i) => {
+        const { cache_control, ...rest } = tool;
+        if (i === lastCacheable) {
+          return { ...rest, cache_control: { type: "ephemeral", ttl: "1h" } };
+        }
+        return rest;
+      });
+    }
 
     // Remove tools array and tool_choice if empty after filtering
     if (body.tools.length === 0) {
@@ -733,7 +738,7 @@ export function prepareClaudeRequest(body, provider = null, apiKey = null, conne
   }
 
   // A tool loop's final tool results: cached now, so the next step reads them.
-  markFinalToolResults(body);
+  if (getDispatchContext()?.requiredPolicy !== true) markFinalToolResults(body);
 
   // Apply cloaking for OAuth tokens (billing header + fake user ID)
   // session_id in user_id must match X-Claude-Code-Session-Id for fingerprint consistency

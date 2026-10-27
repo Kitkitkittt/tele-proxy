@@ -50,6 +50,7 @@ import {
 import { createQoderSseCoalescer } from "../shared/qoder/sse.js";
 import { rewriteQoderMessageAttachments } from "../shared/qoder/attachments.js";
 import { resolveQoderContextTier, applyQoderContextTier } from "../shared/qoder/contextTier.js";
+import { assertNativePolicySupported, withGenerationDispatch } from "../services/dispatchContext.js";
 
 /**
  * Hoist role:"system" messages out of the messages array (Qoder rejects
@@ -527,7 +528,7 @@ async function wrapQoderSSE(response, model, log = null) {
       // Always visible: error envelopes are rare and worth one stderr line at
         // any log level (response bodies carry no credentials).
       try {
-        console.error(`[QODER] error envelope status=${statusVal} statusType=${typeof envelope.statusCodeValue} bodyType=${typeof envelope.body} body=${truncate(inner, 300)}`);
+        if (process.env.TELE_PROXY_ENABLED !== "1") console.error(`[QODER] error envelope status=${statusVal} statusType=${typeof envelope.statusCodeValue} bodyType=${typeof envelope.body} body=${truncate(inner, 300)}`);
       } catch { /* logging must not break the stream */ }
       if (isBillingBlock(inner)) {
         // Billing/quota envelope at any stream position (peek only covers the
@@ -661,6 +662,10 @@ export class QoderExecutor extends BaseExecutor {
   //   - COSY headers built from the *encoded* body bytes
   //   - response stream re-wrapped from {statusCodeValue, body} to OpenAI SSE
   async execute({ model, body, stream, credentials, signal, log, proxyOptions = null }) {
+    // Native Qoder preserves system messages, but has no top-level instructions field.
+    if (body?.system || body?.instructions) {
+      assertNativePolicySupported({ policySupported: false, transport: "http" });
+    }
     // PAT (pt-...) → exchange for short-lived job token + resolve userId so
     // downstream COSY signing + catalog fetch work. Device tokens (dt-...) and
     // job tokens (jt-...) skip this and are used directly.
@@ -800,13 +805,14 @@ export class QoderExecutor extends BaseExecutor {
 
       let response;
       try {
-        response = await proxyAwareFetch(
-          url,
-          { method: "POST", headers: attemptHeadersFull, body: attemptEncoded, signal: mergedSignal },
-          // A failed proxy request may already have reached Qoder. Replaying
-          // the same COSY signature directly reuses its requestId and returns
-          // 403/code 103. Let the caller retry through execute() with fresh signing.
-          { ...proxyOptions, strictProxy: true },
+        response = await withGenerationDispatch(
+          { provider: this.provider, model, body: attemptPayload, transport: "http" },
+          () => proxyAwareFetch(
+            url,
+            { method: "POST", headers: attemptHeadersFull, body: attemptEncoded, signal: mergedSignal },
+            // A failed proxy send may have reached Qoder; replay requires fresh signing.
+            { ...proxyOptions, strictProxy: true },
+          ),
         );
       } catch (err) {
         // strictProxy wraps transport errors; retain caller cancellation semantics.

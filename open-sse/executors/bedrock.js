@@ -11,6 +11,7 @@ import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { SSE_DONE, SSE_HEADERS } from "../utils/sseConstants.js";
 import { FORMATS } from "../translator/formats.js";
 import { FETCH_CONNECT_TIMEOUT_MS } from "../config/runtimeConfig.js";
+import { withGenerationDispatch } from "../services/dispatchContext.js";
 
 /**
  * BedrockExecutor — Amazon Bedrock runtime.
@@ -131,18 +132,20 @@ export class BedrockExecutor extends BaseExecutor {
     const fetchSignal = signal ? AbortSignal.any([signal, connectCtrl.signal]) : connectCtrl.signal;
     let response;
     try {
-      response = await proxyAwareFetch(
-        url,
-        {
-          method: "POST",
-          headers,
-          body: payload,
-          signal: fetchSignal,
-          // Bedrock never redirects. Following one would replay the body and the signed
-          // x-amz-security-token at whatever origin the redirect names, so refuse instead.
-          redirect: "error",
-        },
-        proxyOptions,
+      response = await withGenerationDispatch(
+        { provider: this.provider, model, body: transformedBody, transport: "http", nativeResponse: !!stream },
+        () => proxyAwareFetch(
+          url,
+          {
+            method: "POST",
+            headers,
+            body: payload,
+            signal: fetchSignal,
+            // Never redirect the signed body or replay its session credential.
+            redirect: "error",
+          },
+          proxyOptions,
+        ),
       );
     } catch (error) {
       if (connectCtrl.signal.aborted && !signal?.aborted) {

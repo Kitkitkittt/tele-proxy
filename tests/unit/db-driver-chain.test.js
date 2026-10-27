@@ -56,4 +56,20 @@ describe("Driver fallback chain", () => {
     const db = await getAdapter();
     expect(db.driver).toBe("sql.js");
   });
+
+  it("removes adapter shutdown listeners on repeated close and reopen", async () => {
+    const [major, minor] = process.versions.node.split(".").map(Number);
+    if (process.versions.bun || major < 22 || (major === 22 && minor < 5)) return;
+    vi.doUnmock("@/lib/db/adapters/nodeSqliteAdapter.js");
+    const { createNodeSqliteAdapter } = await import("@/lib/db/adapters/nodeSqliteAdapter.js");
+    const events = ["beforeExit", "SIGINT", "SIGTERM"];
+    const initial = events.map(event => process.listenerCount(event));
+    for (let i = 0; i < 12; i++) {
+      const adapter = await createNodeSqliteAdapter(path.join(tempDir, `lifecycle-${i}.sqlite`));
+      expect(events.map(event => process.listenerCount(event))).toEqual(initial.map(count => count + 1));
+      adapter.close();
+      adapter.close();
+      expect(events.map(event => process.listenerCount(event))).toEqual(initial);
+    }
+  });
 });

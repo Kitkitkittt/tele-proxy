@@ -5,6 +5,7 @@
 import dns from "node:dns";
 import { isIP } from "node:net";
 import { BaseExecutor } from "./base.js";
+import { assertNativePolicySupported, withGenerationDispatch } from "../services/dispatchContext.js";
 
 const BASE_URL = "https://veoaifree.com";
 const AJAX_URL = `${BASE_URL}/wp-admin/admin-ajax.php`;
@@ -172,16 +173,17 @@ export class VeoAiFreeWebExecutor extends BaseExecutor {
   async generateMedia({ prompt, kind = "video", size, credentials, signal, log }) {
     if (kind !== "video" && kind !== "image") throw new Error("veoaifree-web supports image and video generation only");
     if (!prompt?.trim()) throw new Error("prompt is required");
+    assertNativePolicySupported({ transport: "veoaifree-media", policySupported: false });
     const context = buildContext(signal);
     const nonce = await fetchNonce(context);
 
     if (kind === "image") {
-      const result = await postAjax(context, nonce, {
+      const result = await withGenerationDispatch({ transport: "veoaifree-media", policySupported: false, signal }, () => postAjax(context, nonce, {
         promptIMG: prompt,
         totalVariationsIMG: "1",
         aspectRatioIMG: mapAspectRatio(size, "IMAGE_ASPECT_RATIO"),
         actionType: "banan-image-generator",
-      });
+      }));
       const trimmed = result.trim();
       if (!trimmed || trimmed === "0" || trimmed.toLowerCase().includes("error")) {
         throw new Error(`veoaifree image generation failed: ${trimmed.slice(0, 120)}`);
@@ -191,12 +193,12 @@ export class VeoAiFreeWebExecutor extends BaseExecutor {
       ));
     }
 
-    const genResult = await postAjax(context, nonce, {
+    const genResult = await withGenerationDispatch({ transport: "veoaifree-media", policySupported: false, signal }, () => postAjax(context, nonce, {
       prompt,
       totalVariations: "1",
       aspectRatio: mapAspectRatio(size, "VIDEO_ASPECT_RATIO"),
       actionType: "full-video-generate",
-    });
+    }));
     const sceneData = genResult.trim();
     if (!sceneData || sceneData === "0" || sceneData.toLowerCase().includes("error")) {
       throw new Error(`veoaifree video submit failed: ${sceneData.slice(0, 120)}`);

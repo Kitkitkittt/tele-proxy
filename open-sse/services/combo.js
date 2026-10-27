@@ -8,6 +8,8 @@ import { getCapabilitiesForModel } from "../providers/capabilities.js";
 import { parseModel } from "./model.js";
 import { extractTextContent } from "../translator/formats/gemini.js";
 import { peekStreamForContent, reconstructStream, isNoRetryFinish } from "./emptyFailover.js";
+import { getDispatchContext } from "./dispatchContext.js";
+import { isPolicyOrCancellationError, requiredPolicyUnsupported } from "./policyEligibility.js";
 import {
   getStickyComboModel,
   setStickyComboModel,
@@ -415,6 +417,7 @@ export async function handleComboChat({
             log.info("COMBO", `smart-router [smart-switch] retained prompt cache model "${activeStickyModel}"`);
           }
         } catch (err) {
+          if (isPolicyOrCancellationError(err)) throw err;
           // Fail open to active sticky model
           rotatedModels = [activeStickyModel, ...models.filter((m) => m !== activeStickyModel)];
           log.warn("COMBO", `smart-router error, retained model "${activeStickyModel}"`, { error: err?.message || String(err) });
@@ -443,6 +446,7 @@ export async function handleComboChat({
           log.info("COMBO", `smart-router no decision, fallback to order: [${models.join(", ")}]`);
         }
       } catch (err) {
+        if (isPolicyOrCancellationError(err)) throw err;
         log.warn("COMBO", `smart-router error, fallback to order: [${models.join(", ")}]`, { error: err?.message || String(err) });
       }
     }
@@ -484,6 +488,7 @@ export async function handleComboChat({
         try {
           peeked = await peekComboResponse(result, log);
         } catch (peekErr) {
+          if (isPolicyOrCancellationError(peekErr)) throw peekErr;
           // peekStreamForContent is written not to throw; if reconstruction/Response
           // construction ever does, result.body is already locked by getReader() and can no
           // longer be streamed. Returning `result` would hand the client a locked, unreadable
@@ -513,7 +518,8 @@ export async function handleComboChat({
                   lastStatus = 200;
                   continue;
                 }
-              } catch {
+              } catch (error) {
+                if (isPolicyOrCancellationError(error)) throw error;
                 // Ignore JSON parse errors
               }
             }
@@ -561,7 +567,8 @@ export async function handleComboChat({
         const errorBody = await result.clone().json();
         errorText = errorBody?.error?.message || errorBody?.error || errorBody?.message || errorText;
         retryAfter = errorBody?.retryAfter || null;
-      } catch {
+      } catch (error) {
+        if (isPolicyOrCancellationError(error)) throw error;
         // Ignore JSON parse errors
       }
 
@@ -613,6 +620,7 @@ export async function handleComboChat({
       if (!lastStatus) lastStatus = result.status;
       log.warn("COMBO", `Model ${modelStr} failed, trying next`, { status: result.status });
     } catch (error) {
+      if (isPolicyOrCancellationError(error)) throw error;
       // Catch unexpected exceptions to ensure fallback continues
       if (comboStrategy === "smart" && sessionId && modelStr === activeStickyModel) {
         clearStickyComboSession(comboName, sessionId);
@@ -830,6 +838,9 @@ export async function handleFusionChat({ body, models, handleSingleModel, log, c
   if (panel.length === 1) {
     return handleSingleModel(body, panel[0]);
   }
+  if (getDispatchContext()?.requiredPolicy === true) {
+    throw requiredPolicyUnsupported("fusion tool/history rewriting");
+  }
 
   const cfg = { ...FUSION_DEFAULTS, ...(tuning || {}) };
   const minPanel = Math.min(Math.max(2, cfg.minPanel), panel.length);
@@ -862,7 +873,11 @@ export async function handleFusionChat({ body, models, handleSingleModel, log, c
     const model = panel[i];
     if (!res) { log.warn("FUSION", `Panel ${model} dropped (straggler/timeout)`); continue; }
     if (res.__timeout) { log.warn("FUSION", `Panel ${model} timed out`); continue; }
-    if (res.__error) { log.warn("FUSION", `Panel ${model} threw`, { error: res.__error?.message || String(res.__error) }); continue; }
+    if (res.__error) {
+      if (isPolicyOrCancellationError(res.__error)) throw res.__error;
+      log.warn("FUSION", `Panel ${model} threw`, { error: res.__error?.message || String(res.__error) });
+      continue;
+    }
     if (!res.ok) { log.warn("FUSION", `Panel ${model} failed`, { status: res.status }); continue; }
     try {
       const json = await res.clone().json();
@@ -874,6 +889,7 @@ export async function handleFusionChat({ body, models, handleSingleModel, log, c
         log.warn("FUSION", `Panel ${model} returned empty content`);
       }
     } catch (e) {
+      if (isPolicyOrCancellationError(e)) throw e;
       log.warn("FUSION", `Panel ${model} unparseable`, { error: e.message || String(e) });
     }
   }

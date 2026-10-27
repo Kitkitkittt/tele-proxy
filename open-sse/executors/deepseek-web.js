@@ -7,6 +7,7 @@ import { BaseExecutor } from "./base.js";
 import { SSE_DONE, SSE_HEADERS_NO_BUFFER } from "../utils/sseConstants.js";
 import { sseChunk } from "../utils/sse.js";
 import { solveDeepSeekPowAsync } from "../lib/deepseek-pow.js";
+import { assertNativePolicySupported, withGenerationDispatch } from "../services/dispatchContext.js";
 import {
   serializeDeepSeekToolPrompt,
   parseDeepSeekToolCalls,
@@ -791,6 +792,8 @@ export class DeepSeekWebExecutor extends BaseExecutor {
   }
 
   async execute({ model, body, stream, credentials, signal, log }) {
+    // The web API flattens trusted roles into a plain prompt.
+    assertNativePolicySupported({ policySupported: false, transport: "http" });
     const bodyObj = body || {};
 
     // chat.deepseek.com's web API only accepts {prompt, ref_file_ids,
@@ -869,12 +872,15 @@ export class DeepSeekWebExecutor extends BaseExecutor {
           search_enabled: searchEnabled,
           preempt: false,
         };
-        const resp = await fetch(COMPLETION_URL, {
-          method: "POST",
-          headers: reqHeaders,
-          body: JSON.stringify(requestPayload),
-          signal: signal ?? undefined,
-        });
+        const resp = await withGenerationDispatch(
+          { provider: this.provider, model, body: requestPayload, transport: "http" },
+          () => fetch(COMPLETION_URL, {
+            method: "POST",
+            headers: reqHeaders,
+            body: JSON.stringify(requestPayload),
+            signal: signal ?? undefined,
+          }),
+        );
         return { resp, reqHeaders, requestPayload };
       };
 

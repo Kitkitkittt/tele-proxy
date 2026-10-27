@@ -1,5 +1,5 @@
 import { resolveOllamaLocalHost } from "../../config/providers.js";
-import { responseToBase64, throwUpstreamError } from "./_base.js";
+import { responseToBase64, throwUpstreamError, ttsFetch } from "./_base.js";
 
 const DEFAULT_MODEL = "phonon:multilingual";
 const DEFAULT_VOICE = "default";
@@ -54,7 +54,7 @@ export default {
 
     let res;
     try {
-      res = await fetch(`${host}/v1/audio/speech`, {
+      res = await ttsFetch(`${host}/v1/audio/speech`, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
@@ -78,7 +78,7 @@ export default {
         }
 
         if (altModel) {
-          const retryModelRes = await fetch(`${host}/v1/audio/speech`, {
+          const retryModelRes = await ttsFetch(`${host}/v1/audio/speech`, {
             method: "POST",
             headers,
             body: JSON.stringify({ ...payload, model: altModel }),
@@ -96,7 +96,7 @@ export default {
       if (!res.ok && res.status === 400 && voice !== DEFAULT_VOICE) {
         const errText = await res.clone().text().catch(() => "");
         if (errText.includes("voice") && errText.includes("not found")) {
-          const retryVoiceRes = await fetch(`${host}/v1/audio/speech`, {
+          const retryVoiceRes = await ttsFetch(`${host}/v1/audio/speech`, {
             method: "POST",
             headers,
             body: JSON.stringify({ ...payload, model: ttsModel, voice: DEFAULT_VOICE }),

@@ -70,7 +70,7 @@ export async function handleResponsesCore({ body, modelInfo, credentials, log, o
         })
       };
     } catch (error) {
-      console.error("[Responses API] Stream-to-JSON conversion failed:", error);
+      if (process.env.TELE_PROXY_ENABLED !== "1") console.error("[Responses API] Stream-to-JSON conversion failed:", error);
       return {
         success: false,
         status: 500,

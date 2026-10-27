@@ -6,6 +6,9 @@
 // pinned), bridge them onto `window`, and drive the request path through them.
 // The hot path never touches the composer, model picker, or bearer tokens.
 
+import { assertNativePolicySupported } from "../../services/dispatchContext.js";
+import { dispatchChatGptBrowserGeneration } from "./dispatch.js";
+
 const CHATGPT_ORIGIN = "https://chatgpt.com";
 const CHATGPT_ASSET_PATH_RE =
   /^\/(?:cdn|unauth-mweb|auth-mweb)\/(?:assets|scripts)\/[A-Za-z0-9._-]+\.js$/;
@@ -816,7 +819,9 @@ async function storeConversationHeaders(page, requestId) {
 }
 
 async function submitConversationRequest(page, requestId) {
-  await page.evaluate(
+  const details = { transport: "browser-chatgpt", policySupported: false };
+  assertNativePolicySupported(details);
+  await dispatchChatGptBrowserGeneration(page, undefined, () => page.evaluate(
     async ({ abortKey, bridgeKey, requestId, requestKey }) => {
       const root = globalThis;
       const requestClient = (root[bridgeKey])?.requestClient;
@@ -862,7 +867,7 @@ async function submitConversationRequest(page, requestId) {
       requestId,
       requestKey: FIRST_PARTY_REQUEST_KEY,
     }
-  );
+  ));
 }
 
 async function readConversationResponse(page, requestId) {
@@ -964,6 +969,7 @@ async function runSerialized(page, task) {
 }
 
 export async function executeChatGptWebFirstPartyTurn(page, input, options = {}) {
+  assertNativePolicySupported({ policySupported: false, transport: "browser-chatgpt" });
   const requestId = options.requestId ?? crypto.randomUUID();
   return runSerialized(page, async () => {
     if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");

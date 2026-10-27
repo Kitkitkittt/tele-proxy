@@ -5,6 +5,7 @@ import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import codex from "../providers/registry/codex.js";
 import { convertAudio, readBounded, MAX_AUDIO_BYTES } from "./codexSttAudio.js";
 import { createErrorResult } from "../utils/error.js";
+import { withGenerationDispatch } from "../services/dispatchContext.js";
 
 let active = 0;
 const failure = (status, message) => Object.assign(new Error(message), { status });
@@ -69,7 +70,7 @@ export async function transcribeCodex({ formData, credentials, signal: clientSig
       Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.wav"\r\nContent-Type: audio/wav\r\n\r\n`),
       Buffer.from(await audio.arrayBuffer()), Buffer.from(`\r\n--${boundary}--\r\n`),
     ]);
-    const response = await proxyAwareFetch(codex.sttConfig.baseUrl, {
+    const response = await withGenerationDispatch({ requestedModel: "transcribe", policySupported: false, transport: "stt-codex", signal }, () => proxyAwareFetch(codex.sttConfig.baseUrl, {
       method: "POST", redirect: "error", signal, body,
       strictTls: true, directFetch: codexHttpFetch,
       headers: {
@@ -77,7 +78,7 @@ export async function transcribeCodex({ formData, credentials, signal: clientSig
         "User-Agent": codex.transport.headers["User-Agent"],
         "Content-Type": `multipart/form-data; boundary=${boundary}`, "Content-Length": String(body.length),
       },
-    }, proxyOptions);
+    }, proxyOptions));
     if (!response.ok) {
       await response.body?.cancel();
       return createErrorResult(response.status >= 400 && response.status <= 599 ? response.status : 502, "Codex transcription failed");

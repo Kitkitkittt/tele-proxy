@@ -9,6 +9,7 @@
  * never overrides a combo that already has a member covering the capability.
  */
 import { getCapabilitiesForModel } from "../providers/capabilities.js";
+import { getDispatchContext } from "./dispatchContext.js";
 
 const CAPABILITY_KEYS = ["vision", "pdf", "audioInput", "videoInput"];
 const HARD_CAPS = new Set(CAPABILITY_KEYS);
@@ -116,6 +117,7 @@ function blockLength(content) {
 // carrying the media the switch happened for (tail). Older middle turns between
 // the head instructions and the current turn are dropped first.
 export function stripHistoryForContext(body, contextWindow) {
+  if (getDispatchContext()?.requiredPolicy === true) return body;
   const key = Array.isArray(body.messages) ? "messages"
     : Array.isArray(body.input) ? "input"
     : Array.isArray(body.contents) ? "contents"
@@ -162,7 +164,7 @@ export function withCapacityAdapterStripping(handleSingleModel, adapterModels) {
   const adapterSet = new Set(adapterModels);
   if (adapterSet.size === 0) return handleSingleModel;
   return (body, modelStr, ...rest) => {
-    if (adapterSet.has(modelStr)) {
+    if (adapterSet.has(modelStr) && getDispatchContext()?.requiredPolicy !== true) {
       const slash = modelStr.indexOf("/");
       const provider = slash > 0 ? modelStr.slice(0, slash) : "";
       const model = slash > 0 ? modelStr.slice(slash + 1) : modelStr;

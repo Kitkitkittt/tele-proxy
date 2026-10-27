@@ -7,6 +7,8 @@
 // downloaded in-page as base64.
 
 import { ensureFirstPartyBridge, FIRST_PARTY_BRIDGE_KEY } from "./firstParty.js";
+import { assertNativePolicySupported } from "../../services/dispatchContext.js";
+import { dispatchChatGptBrowserGeneration } from "./dispatch.js";
 
 const MAX_SSE_BYTES = 16 * 1024 * 1024;
 const MAX_CONVERSATION_BYTES = 32 * 1024 * 1024;
@@ -78,8 +80,31 @@ async function runImageConversation(page, prompt, { sizeHint, signal }) {
   const headers = await sentinelHeaders(page);
   const accessToken = await pageAccessToken(page);
 
-  return page.evaluate(
-    async ({ accessToken, headers, prompt, sizeHint, maxBytes }) => {
+  const conduitToken = await page.evaluate(
+    async ({ accessToken, headers, prompt }) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 60000);
+      try {
+        const response = await fetch("/backend-api/f/conversation/prepare", {
+          method: "POST",
+          credentials: "include",
+          signal: controller.signal,
+          headers: { ...headers, Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ action: "next", fork_from_shared_post: false, parent_message_id: crypto.randomUUID(), model: "auto", client_prepare_state: "success", timezone_offset_min: new Date().getTimezoneOffset(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, conversation_mode: { kind: "primary_assistant" }, system_hints: ["picture_v2"], partial_query: { id: crypto.randomUUID(), author: { role: "user" }, content: { content_type: "text", parts: [prompt] } }, supports_buffering: true, supported_encodings: ["v1"], client_contextual_info: { app_name: "chatgpt.com" } }),
+        });
+        if (!response.ok) throw new Error(`prepare failed with status ${response.status}`);
+        const prepared = await response.json();
+        return prepared.conduit_token || "";
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+    { accessToken, headers, prompt }
+  );
+  const details = { transport: "browser-chatgpt", policySupported: false, signal };
+  assertNativePolicySupported(details);
+  return dispatchChatGptBrowserGeneration(page, signal, () => page.evaluate(
+    async ({ accessToken, headers, prompt, sizeHint, maxBytes, conduitToken }) => {
       const authHeaders = { ...headers, Authorization: `Bearer ${accessToken}` };
 
       const readBody = async (response, limit) => {
@@ -108,28 +133,6 @@ async function runImageConversation(page, prompt, { sizeHint, signal }) {
         }
         return chunks.join("");
       };
-      const fetchWithTimeout = async (url, options, timeoutMs) => {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), timeoutMs);
-        try {
-          return await fetch(url, { ...options, signal: controller.signal });
-        } finally {
-          clearTimeout(timer);
-        }
-      };
-
-      // 1. prepare → conduit token
-      const prepareResponse = await fetchWithTimeout("/backend-api/f/conversation/prepare", {
-        method: "POST",
-        credentials: "include",
-        headers: { ...authHeaders, "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ action: "next", fork_from_shared_post: false, parent_message_id: crypto.randomUUID(), model: "auto", client_prepare_state: "success", timezone_offset_min: new Date().getTimezoneOffset(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, conversation_mode: { kind: "primary_assistant" }, system_hints: ["picture_v2"], partial_query: { id: crypto.randomUUID(), author: { role: "user" }, content: { content_type: "text", parts: [prompt] } }, supports_buffering: true, supported_encodings: ["v1"], client_contextual_info: { app_name: "chatgpt.com" } }),
-      }, 60000);
-      if (!prepareResponse.ok) {
-        throw new Error(`prepare failed with status ${prepareResponse.status}`);
-      }
-      const prepareJson = await prepareResponse.json();
-      const conduitToken = prepareJson.conduit_token || "";
 
       // 2. conversation SSE — run the generation. The stream can stay open for
       // the whole generation (progress keepalives), so it is read under a hard
@@ -185,8 +188,8 @@ async function runImageConversation(page, prompt, { sizeHint, signal }) {
       for (const match of sseText.matchAll(/sediment:\/\/([A-Za-z0-9_-]+)/g)) addUnique(sedimentIds, match[1]);
       return { conversationId, fileIds, sedimentIds };
     },
-    { accessToken, headers, prompt, sizeHint, maxBytes: MAX_SSE_BYTES }
-  );
+    { accessToken, headers, prompt, sizeHint, maxBytes: MAX_SSE_BYTES, conduitToken }
+  ));
 }
 
 /** Poll the conversation document until the image_gen tool record lands. */
@@ -386,6 +389,7 @@ async function downloadGeneratedImage(page, accessToken, conversationId, { fileI
  * Generate one image inside a logged-in ChatGPT page and return base64 bytes.
  */
 export async function generateChatGptWebImage(page, { prompt, sizeHint, signal, log }) {
+  assertNativePolicySupported({ policySupported: false, transport: "browser-chatgpt" });
   await ensureFirstPartyBridge(page);
   if (signal?.aborted) throw new Error("Request aborted");
   const initial = await runImageConversation(page, prompt, { sizeHint, signal });

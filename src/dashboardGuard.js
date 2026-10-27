@@ -207,6 +207,12 @@ export const __test__ = {
 export async function proxy(request) {
   const { pathname } = request.nextUrl;
 
+  // This exact endpoint enforces its own dedicated bearer token. Do not use the
+  // prefix-based public API list: sibling or future nested routes remain guarded.
+  if (process.env.TELE_PROXY_ENABLED === "1" && pathname === "/api/metrics" && request.method === "GET") {
+    return NextResponse.next();
+  }
+
   // Local-only gate for spawn-capable / host-secret routes.
   if (LOCAL_ONLY_PATHS.some((p) => pathname.startsWith(p))) {
     if (!(await canAccessLocalOnlyRoute(request))) {

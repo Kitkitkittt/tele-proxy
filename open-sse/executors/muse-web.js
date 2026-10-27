@@ -13,6 +13,7 @@
 
 import { createHash } from "node:crypto";
 import { BaseExecutor } from "./base.js";
+import { assertNativePolicySupported, reportUnsupportedDispatch } from "../services/dispatchContext.js";
 import { SSE_DONE, SSE_HEADERS_NO_BUFFER } from "../utils/sseConstants.js";
 import { isMissingBrowserExecutable, resolveSystemChromeExecutable } from "./browserExecutableCheck.js";
 import { acquireBrowserContext, releaseBrowserContext } from "../services/browserPool.js";
@@ -77,7 +78,6 @@ function formatChatCompletion(content, model, finishReason = "stop") {
         logprobs: null,
       },
     ],
-    usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
   };
 }
 
@@ -164,6 +164,8 @@ async function denyApprovals(page) {
 async function sendPrompt(page, prompt) {
   const res = await page.evaluate(dom.fillInputScript(prompt));
   if (!res?.ok) throw new MuseWebUpstreamError(`cannot fill muse.ai chat input: ${res?.err}`);
+  assertNativePolicySupported({ policySupported: false, transport: "browser-muse" });
+  reportUnsupportedDispatch({ transport: "browser-muse", reason: "generation-boundary-unavailable" });
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
     if ((await page.evaluate(dom.CLICK_SEND)) === "clicked") return;
@@ -476,6 +478,7 @@ export class MuseWebExecutor extends BaseExecutor {
   }
 
   async execute({ model, body, stream, credentials, signal, log }) {
+    assertNativePolicySupported({ policySupported: false, transport: "browser-muse" });
     const requestBody = body || {};
     const messages = requestBody.messages || [];
     const modelId = model || DEFAULT_MODEL_ID;
@@ -643,6 +646,7 @@ export class MuseWebExecutor extends BaseExecutor {
    * @returns {Promise<Array<{ b64: string, mime: string, width?: number, height?: number }>>}
    */
   async generateMedia({ prompt, kind = "image", size, duration, n = 1, images, credentials, signal, log }) {
+    assertNativePolicySupported({ policySupported: false, transport: "browser-muse" });
     if (!prompt) throw new MuseWebUpstreamError("prompt is required for media generation");
     const mediaPrompt = buildMediaPrompt(prompt, kind, size, duration, Boolean(images?.length));
     const timeoutMs = kind === "video" ? VIDEO_TIMEOUT_MS : IMAGE_TIMEOUT_MS;

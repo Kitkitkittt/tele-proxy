@@ -9,6 +9,10 @@ const LOG_LEVELS = {
 
 const LEVEL = LOG_LEVELS[process.env.LOG_LEVEL?.toUpperCase?.()] ?? LOG_LEVELS.INFO;
 
+// Legacy messages interpolate prompts, credentials and raw upstream errors. Metadata
+// telemetry is emitted separately; never attempt regex sanitization of arbitrary text.
+const metadataOnly = () => process.env.TELE_PROXY_ENABLED === "1";
+
 function formatTime() {
   return new Date().toLocaleTimeString("en-US", { hour12: false });
 }
@@ -34,12 +38,14 @@ export function tagForSession(seed) {
 
 // Print one correlated line: [time] tag symbol message
 export function line(tag, symbol, message) {
+  if (metadataOnly()) return;
   if (LEVEL > LOG_LEVELS.INFO) return;
   console.log(`[${formatTime()}] ${tag} ${symbol} ${message}`);
 }
 
 // Like line() but always printed regardless of LOG_LEVEL (errors must never be hidden)
 export function errorLine(tag, symbol, message) {
+  if (metadataOnly()) return;
   console.log(`[${formatTime()}] ${tag} ${symbol} ${message}`);
 }
 
@@ -67,6 +73,7 @@ function formatData(data) {
 }
 
 export function debug(tag, message, data) {
+  if (metadataOnly()) return;
   if (LEVEL <= LOG_LEVELS.DEBUG) {
     const dataStr = data ? ` ${formatData(data)}` : "";
     console.log(`[${formatTime()}] 🔍 [${tag}] ${message}${dataStr}`);
@@ -74,6 +81,7 @@ export function debug(tag, message, data) {
 }
 
 export function info(tag, message, data) {
+  if (metadataOnly()) return;
   if (LEVEL <= LOG_LEVELS.INFO) {
     const dataStr = data ? ` ${formatData(data)}` : "";
     console.log(`[${formatTime()}] ℹ️  [${tag}] ${message}${dataStr}`);
@@ -81,6 +89,7 @@ export function info(tag, message, data) {
 }
 
 export function warn(tag, message, data) {
+  if (metadataOnly()) return;
   if (LEVEL <= LOG_LEVELS.WARN) {
     const dataStr = data ? ` ${formatData(data)}` : "";
     console.warn(`[${formatTime()}] ⚠️  [${tag}] ${message}${dataStr}`);
@@ -88,6 +97,7 @@ export function warn(tag, message, data) {
 }
 
 export function error(tag, message, data) {
+  if (metadataOnly()) return;
   if (LEVEL <= LOG_LEVELS.ERROR) {
     const dataStr = data ? ` ${formatData(data)}` : "";
     console.log(`[${formatTime()}] ❌ [${tag}] ${message}${dataStr}`);
@@ -95,23 +105,27 @@ export function error(tag, message, data) {
 }
 
 export function request(method, path, extra) {
+  if (metadataOnly()) return;
   const dataStr = extra ? ` ${formatData(extra)}` : "";
   console.log(`\x1b[36m[${formatTime()}] 📥 ${method} ${path}${dataStr}\x1b[0m`);
 }
 
 export function response(status, duration, extra) {
+  if (metadataOnly()) return;
   const icon = status < 400 ? "📤" : "💥";
   const dataStr = extra ? ` ${formatData(extra)}` : "";
   console.log(`[${formatTime()}] ${icon} ${status} (${duration}ms)${dataStr}`);
 }
 
 export function stream(event, data) {
+  if (metadataOnly()) return;
   const dataStr = data ? ` ${formatData(data)}` : "";
   console.log(`[${formatTime()}] 🌊 [STREAM] ${event}${dataStr}`);
 }
 
 // Mask sensitive data
 export function maskKey(key) {
+  if (metadataOnly()) return "[redacted]";
   if (!key || key.length < 8) return "***";
   return `${key.slice(0, 4)}...${key.slice(-4)}`;
 }

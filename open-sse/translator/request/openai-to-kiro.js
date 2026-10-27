@@ -390,7 +390,7 @@ export function openaiToKiroRequest(model, body, stream, credentials) {
   // (role:N | pair:N | id:N | spec:N | orphan:0 | current) names the offending
   // turn so the shape can be diagnosed from the log alone.
   if (!canonical.valid) {
-    console.error(`[Kiro] refusing invalid conversation (openai → kiro): ${(canonical.errors || []).join(", ") || "unknown"} | turns=${(canonical.history || []).length + 1}`);
+    if (process.env.TELE_PROXY_ENABLED !== "1") console.error(`[Kiro] refusing invalid conversation (openai → kiro): ${(canonical.errors || []).join(", ") || "unknown"} | turns=${(canonical.history || []).length + 1}`);
     return null;
   }
   const replayCurrent = canonical.currentMessage.userInputMessage;

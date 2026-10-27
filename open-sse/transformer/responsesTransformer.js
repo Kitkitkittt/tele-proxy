@@ -9,6 +9,7 @@ import path from "path";
 
 // Create log directory for responses (Node.js only)
 export function createResponsesLogger(model, logsDir = null) {
+  if (typeof process !== "undefined" && process.env.TELE_PROXY_ENABLED === "1") return null;
   // Skip logging in worker environment (no fs)
   if (typeof fs.mkdirSync !== "function") {
     return null;

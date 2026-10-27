@@ -3,6 +3,7 @@ import { PROVIDERS } from "../config/providers.js";
 import { getModelMeta } from "../config/providerModels.js";
 import { parseVertexSaJson, refreshVertexToken, refreshGoogleToken } from "../services/tokenRefresh.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
+import { withGenerationDispatch } from "../services/dispatchContext.js";
 
 // Cache project IDs resolved from raw API keys { apiKey → projectId }
 const projectIdCache = new Map();
@@ -171,12 +172,15 @@ export class VertexExecutor extends BaseExecutor {
     const headers = this.buildHeaders(credentials, stream);
     const transformedBody = this.transformRequest(model, body, stream, credentials);
 
-    const response = await proxyAwareFetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(transformedBody),
-      signal,
-    }, proxyOptions);
+    const response = await withGenerationDispatch(
+      { provider: this.provider, model, body: transformedBody, transport: "http" },
+      () => proxyAwareFetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(transformedBody),
+        signal,
+      }, proxyOptions),
+    );
 
     return { response, url, headers, transformedBody };
   }

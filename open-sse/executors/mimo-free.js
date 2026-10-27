@@ -3,6 +3,7 @@ import { PROVIDERS } from "../config/providers.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { createHash } from "crypto";
 import os from "os";
+import { withGenerationDispatch } from "../services/dispatchContext.js";
 
 const BOOTSTRAP_URL = "https://api.xiaomimimo.com/api/free-ai/bootstrap";
 const CHAT_URL = PROVIDERS["mimo-free"].baseUrl;
@@ -143,7 +144,10 @@ export class MimoFreeExecutor extends BaseExecutor {
     const bodyStr = JSON.stringify(transformedBody);
     log?.debug?.("FETCH", `MIMO-FREE → ${url} | body=${bodyStr.length}B`);
 
-    const response = await proxyAwareFetch(url, { method: "POST", headers, body: bodyStr, signal }, proxyOptions);
+    const response = await withGenerationDispatch(
+      { provider: this.provider, model, body: transformedBody, transport: "http" },
+      () => proxyAwareFetch(url, { method: "POST", headers, body: bodyStr, signal }, proxyOptions),
+    );
 
     // On auth failure, invalidate cache and retry once with a fresh JWT
     if (response.status === 401 || response.status === 403) {
@@ -151,7 +155,10 @@ export class MimoFreeExecutor extends BaseExecutor {
       resetJwtCache();
       jwt = await bootstrapJwt(proxyOptions);
       headers["Authorization"] = `Bearer ${jwt}`;
-      const retryResponse = await proxyAwareFetch(url, { method: "POST", headers, body: bodyStr, signal }, proxyOptions);
+      const retryResponse = await withGenerationDispatch(
+        { provider: this.provider, model, body: transformedBody, transport: "http" },
+        () => proxyAwareFetch(url, { method: "POST", headers, body: bodyStr, signal }, proxyOptions),
+      );
       return { response: retryResponse, url, headers, transformedBody };
     }
 

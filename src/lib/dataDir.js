@@ -13,6 +13,17 @@ function defaultDir() {
 
 export function getDataDir() {
   const configured = process.env.DATA_DIR;
+  if (process.env.TELE_PROXY_ENABLED === "1") {
+    if (!configured || !path.isAbsolute(configured)) {
+      throw new Error("tele-proxy requires an absolute isolated DATA_DIR");
+    }
+    if (path.resolve(configured) === path.resolve(defaultDir())) {
+      throw new Error("tele-proxy cannot use the production 9Router data directory");
+    }
+    fs.mkdirSync(configured, { recursive: true, mode: 0o700 });
+    fs.accessSync(configured, fs.constants.R_OK | fs.constants.W_OK);
+    return configured;
+  }
   if (!configured) return defaultDir();
 
   // On Windows, ignore Unix-style absolute paths (e.g. /var/lib/...) that come

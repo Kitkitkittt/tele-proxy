@@ -12,6 +12,8 @@ import { AI_PROVIDERS } from "@/shared/constants/providers";
 import * as log from "../utils/logger.js";
 import { checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy.js";
+import { withGatewayRequest, executeGatewayProvider } from "@/lib/teleProxy.js";
+import { assertNativePolicySupported } from "open-sse/services/dispatchContext.js";
 
 // Providers requiring credentials for STT
 const CREDENTIALED_PROVIDERS = new Set(
@@ -69,13 +71,17 @@ export async function handleStt(request) {
   const keyAccessDenied = await enforceKeyAccessResolved(await getKeyAccessContext(request), modelStr, provider, model);
   if (keyAccessDenied) return keyAccessDenied;
 
+  // Pass metadata only: multipart audio and prompts never enter accounting payloads.
+  return withGatewayRequest({ request, body: { model: modelStr }, target: modelStr, requestedAlias: modelStr, authenticatedKey: extractApiKey(request) }, async () => {
+  assertNativePolicySupported({ policySupported: false, transport: "stt" });
+
   log.info("ROUTING", `Provider: ${provider}, Model: ${model}`);
 
   const modelTransport = await resolveCustomModelTransport(provider, model);
 
   // noAuth providers
   if (!CREDENTIALED_PROVIDERS.has(provider)) {
-    const result = await handleSttCore({ provider, model, formData, sttConfig: AI_PROVIDERS[provider]?.sttConfig, transport: modelTransport });
+    const result = await executeGatewayProvider({ provider, model, format: "openai" }, () => handleSttCore({ provider, model, formData, signal: request.signal, sttConfig: AI_PROVIDERS[provider]?.sttConfig, transport: modelTransport }));
     if (result.success) return result.response;
     return errorResponse(result.status || HTTP_STATUS.BAD_GATEWAY, result.error || "STT failed");
   }
@@ -108,11 +114,11 @@ export async function handleStt(request) {
         ? await resolveConnectionProxyConfig(credentials._connection?.providerSpecificData || credentials.providerSpecificData)
         : undefined;
       const args = { provider, model, formData, credentials, sttConfig: AI_PROVIDERS[provider]?.sttConfig, transport: modelTransport, signal: request.signal, proxyOptions };
-      result = await handleSttCore(args);
+      result = await executeGatewayProvider({ provider, model, connectionId: credentials.connectionId, format: "openai" }, () => handleSttCore(args));
       if (isCodex && result.status === 401 && credentials.refreshToken && !request.signal.aborted) {
         const previous = credentials.accessToken;
         credentials = await checkAndRefreshToken(provider, credentials, { force: true });
-        if (credentials.accessToken !== previous) result = await handleSttCore({ ...args, credentials });
+        if (credentials.accessToken !== previous) result = await executeGatewayProvider({ provider, model, connectionId: credentials.connectionId, format: "openai" }, () => handleSttCore({ ...args, credentials }));
       }
       if (result.success) {
         if (isCodex) await clearAccountError(credentials.connectionId, credentials, model);
@@ -137,4 +143,5 @@ export async function handleStt(request) {
     }
     return result.response || errorResponse(result.status, result.error);
   }
+  });
 }

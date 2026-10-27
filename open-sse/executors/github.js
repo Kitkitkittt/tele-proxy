@@ -12,6 +12,7 @@ import { stripUnsupportedParams } from "../translator/concerns/paramSupport.js";
 import { SSE_DONE } from "../utils/sseConstants.js";
 import { ANTHROPIC_API_VERSION } from "../providers/shared.js";
 import crypto from "crypto";
+import { withGenerationDispatch } from "../services/dispatchContext.js";
 
 export class GithubExecutor extends BaseExecutor {
   constructor() {
@@ -172,12 +173,15 @@ export class GithubExecutor extends BaseExecutor {
 
     log?.debug("GITHUB", "Sending translated request to /responses");
 
-    const response = await proxyAwareFetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(transformedBody),
-      signal
-    }, proxyOptions);
+    const response = await withGenerationDispatch(
+      { provider: this.provider, model, body: transformedBody, transport: "http" },
+      () => proxyAwareFetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(transformedBody),
+        signal
+      }, proxyOptions),
+    );
 
     if (!response.ok) {
       return { response, url, headers, transformedBody };
@@ -267,12 +271,15 @@ export class GithubExecutor extends BaseExecutor {
 
     log?.debug("GITHUB", "Sending translated request to /v1/messages");
 
-    const response = await proxyAwareFetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(transformedBody),
-      signal
-    }, proxyOptions);
+    const response = await withGenerationDispatch(
+      { provider: this.provider, model, body: transformedBody, transport: "http" },
+      () => proxyAwareFetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(transformedBody),
+        signal
+      }, proxyOptions),
+    );
 
     if (!response.ok) {
       return { response, url, headers, transformedBody };

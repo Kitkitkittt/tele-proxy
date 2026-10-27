@@ -4,6 +4,7 @@
 // fingerprint even with valid sso+sso-rw+cf_clearance cookies. wreq-js sends
 // a Chrome-like handshake instead (browser profile chrome_146). The session's
 import { loadRuntimeDep } from "./lazyRuntime.js";
+import { assertNativePolicySupported, dispatchGeneration } from "./dispatchContext.js";
 // User-Agent must match the browser that earned the cf_clearance cookie —
 // callers send GROK_TLS_USER_AGENT with the pasted cookie header.
 //
@@ -53,6 +54,10 @@ export function isCloudflareChallenge(text) {
  * `.text()` consumers keep working unchanged.
  */
 export async function grokTlsFetch(url, { method = "GET", headers = {}, body, timeoutMs = 120000, signal } = {}) {
+  // Only POST calls generate; GET requests authenticate or download binary assets.
+  const generation = method.toUpperCase() === "POST";
+  const dispatchDetails = { transport: "grok-wreq", policySupported: false, signal };
+  if (generation) assertNativePolicySupported(dispatchDetails);
   let session;
   try {
     session = await loadSession();
@@ -71,19 +76,22 @@ export async function grokTlsFetch(url, { method = "GET", headers = {}, body, ti
   if (body !== undefined) options.body = body;
   if (signal) options.signal = signal;
 
-  const res = await session.fetch(url, options);
-  // Buffer as ArrayBuffer, never text(): asset downloads are binary JPEGs and
-  // UTF-8 decoding would mangle every non-ASCII byte into U+FFFD.
-  const buffer = await res.arrayBuffer();
-  const responseHeaders = {};
-  try {
-    if (res.headers && typeof res.headers.forEach === "function") {
-      res.headers.forEach((value, key) => {
-        responseHeaders[key] = value;
-      });
+  const send = async () => {
+    const res = await session.fetch(url, options);
+    // Buffer as ArrayBuffer, never text(): asset downloads are binary JPEGs and
+    // UTF-8 decoding would mangle every non-ASCII byte into U+FFFD.
+    const buffer = await res.arrayBuffer();
+    const responseHeaders = {};
+    try {
+      if (res.headers && typeof res.headers.forEach === "function") {
+        res.headers.forEach((value, key) => {
+          responseHeaders[key] = value;
+        });
+      }
+    } catch {
+      // Header iteration is best-effort.
     }
-  } catch {
-    // Header iteration is best-effort.
-  }
-  return new Response(buffer, { status: res.status, headers: responseHeaders });
+    return new Response(buffer, { status: res.status, headers: responseHeaders });
+  };
+  return generation ? dispatchGeneration(dispatchDetails, send) : send();
 }

@@ -1,6 +1,6 @@
 // Microsoft Edge / Bing TTS (no auth) — via Bing translator endpoint
 import { Buffer } from "node:buffer";
-import { UA } from "./_base.js";
+import { UA, ttsFetch } from "./_base.js";
 
 const REFRESH_MS = 5 * 60 * 1000; // token TTL ~1h, refresh early
 const VOICES_TTL = 24 * 60 * 60 * 1000;
@@ -35,7 +35,7 @@ async function ttsRequest(text, voiceId, token) {
   body.append("ssml", ssml);
   body.append("token", token.token);
   body.append("key", token.key);
-  return fetch("https://www.bing.com/tfettts?isVertical=1&&IG=1&IID=translator.5023&SFX=1", {
+  return ttsFetch("https://www.bing.com/tfettts?isVertical=1&&IG=1&IID=translator.5023&SFX=1", {
     method: "POST",
     body: body.toString(),
     headers: {

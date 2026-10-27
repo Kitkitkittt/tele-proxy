@@ -81,6 +81,7 @@ function appendLine(line) {
 }
 
 export function initConsoleLogCapture() {
+  if (process.env.TELE_PROXY_ENABLED === "1" || process.env.TELE_PROXY_CANARY === "1") return;
   if (state.patched) return;
 
   for (const level of consoleLevels) {

@@ -241,6 +241,16 @@ export async function getActiveRequests() {
 }
 
 export async function saveRequestUsage(entry) {
+  if (process.env.TELE_PROXY_ENABLED === "1") {
+    // Never persist raw keys/prefixes or arbitrary provider payloads in the legacy
+    // reference-cost store. Authenticated identity and cost bases live in the ledger.
+    const numericTokens = {};
+    for (const key of ["prompt_tokens", "input_tokens", "completion_tokens", "output_tokens", "cached_tokens", "cache_creation_input_tokens", "reasoning_tokens"]) {
+      const value = entry.tokens?.[key];
+      if (typeof value === "number" && Number.isFinite(value) && value >= 0) numericTokens[key] = value;
+    }
+    entry = { ...entry, apiKey: null, tokens: numericTokens };
+  }
   try {
     const db = await getAdapter();
 
@@ -311,7 +321,7 @@ export async function saveRequestUsage(entry) {
       scheduleStatsEvent("update", 250);
     }
   } catch (e) {
-    console.error("Failed to save usage stats:", e);
+    if (process.env.TELE_PROXY_ENABLED !== "1") console.error("Failed to save usage stats:", e);
   }
 }
 

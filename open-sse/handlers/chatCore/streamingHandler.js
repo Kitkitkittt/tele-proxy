@@ -53,7 +53,7 @@ export async function handleStreamingResponse({ providerResponse, provider, mode
     Promise.resolve()
       .then(onRequestSuccess)
       .catch(err => {
-        console.error("[ChatCore] onRequestSuccess failed:", err?.message || err);
+        if (process.env.TELE_PROXY_ENABLED !== "1") console.error("[ChatCore] onRequestSuccess failed:", err?.message || err);
       });
   }
 
@@ -108,7 +108,7 @@ export async function handleStreamingResponse({ providerResponse, provider, mode
     pxpipe,
     status: "success"
   }, { id: streamDetailId })).catch(err => {
-    console.error("[RequestDetail] Failed to save streaming request:", err.message);
+    if (process.env.TELE_PROXY_ENABLED !== "1") console.error("[RequestDetail] Failed to save streaming request:", err.message);
   });
 
   return {
@@ -142,7 +142,7 @@ export function buildOnStreamComplete({ provider, model, connectionId, apiKey, r
       pxpipe,
       status: "success"
     }, { id: streamDetailId })).catch(err => {
-      console.error("[RequestDetail] Failed to update streaming content:", err.message);
+      if (process.env.TELE_PROXY_ENABLED !== "1") console.error("[RequestDetail] Failed to update streaming content:", err.message);
     });
 
     // Persist stream usage to DB (no console line; the "📊 done" line below is authoritative)

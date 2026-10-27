@@ -9,7 +9,7 @@ export function safeApply(fn, text) {
   } catch (err) {
     // Rust: eprintln!("[rtk] warning: filter panicked — passing through raw output")
     const name = fn.filterName || fn.name || "anonymous";
-    console.warn(`[rtk] warning: filter '${name}' panicked — passing through raw output: ${err?.message || err}`);
+    if (process.env.TELE_PROXY_ENABLED !== "1") console.warn(`[rtk] warning: filter '${name}' panicked — passing through raw output: ${err?.message || err}`);
     return text;
   }
 }

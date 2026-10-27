@@ -63,6 +63,25 @@ describe("dashboard guard public LLM API access", () => {
     mocks.verifyDashboardAuthToken.mockResolvedValue(false);
   });
 
+  it("delegates only the enabled exact GET metrics endpoint to its bearer-token handler", async () => {
+    const previous = process.env.TELE_PROXY_ENABLED;
+    try {
+      process.env.TELE_PROXY_ENABLED = "1";
+      const metrics = request("/api/metrics", { authorization: "Bearer metrics-token" });
+      metrics.method = "GET";
+      expect(await proxy(metrics)).toBe(mocks.nextResponse);
+      const nested = request("/api/metrics/private"); nested.method = "GET";
+      expect((await proxy(nested)).status).toBe(401);
+      const mutation = request("/api/metrics"); mutation.method = "POST";
+      expect((await proxy(mutation)).status).toBe(401);
+      process.env.TELE_PROXY_ENABLED = "0";
+      expect((await proxy(metrics)).status).toBe(401);
+    } finally {
+      if (previous === undefined) delete process.env.TELE_PROXY_ENABLED;
+      else process.env.TELE_PROXY_ENABLED = previous;
+    }
+  });
+
   it("allows loopback public LLM API without API key", async () => {
     const response = await proxy(localRequest("/v1/chat/completions", { host: "localhost:20128" }));
 

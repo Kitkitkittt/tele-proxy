@@ -26,8 +26,9 @@ import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { getProjectIdForConnection } from "open-sse/services/projectId.js";
 import { stripModelContextMarker } from "open-sse/utils/modelMarkers.js";
-import { getKeyAccessContext, enforceKeyAccess, filterAdapterModels } from "../services/keyAccess.js";
+import { getKeyAccessContext, enforceKeyAccess, filterAdapterModels, extractClientApiKey } from "../services/keyAccess.js";
 import { resolveSmartChoice } from "../services/systemoneRouter.js";
+import { withGatewayRequest, resolveGatewayTarget } from "@/lib/teleProxy.js";
 
 /**
  * Handle chat completion request
@@ -52,10 +53,11 @@ export async function handleChat(request, clientRawRequest = null) {
       headers: Object.fromEntries(request.headers.entries())
     };
   }
+  const requestedAlias = body.model;
   // Claude Code marks a 1M-context request as `<model>[1m]`; the marker matches
   // no combo, alias or provider/model pair, so it must not reach resolution.
   // The capability travels in the anthropic-beta header, forwarded as-is.
-  const { model: modelStr, contextMarker } = stripModelContextMarker(body.model);
+  let { model: modelStr, contextMarker } = stripModelContextMarker(body.model);
   if (contextMarker) body.model = modelStr;
 
   const session = resolveSessionIdentity({ headers: clientRawRequest?.headers, body });
@@ -65,7 +67,7 @@ export async function handleChat(request, clientRawRequest = null) {
 
   // Log API key (masked)
   const authHeader = request.headers.get("Authorization");
-  const apiKey = extractApiKey(request);
+  const apiKey = extractClientApiKey(request);
   if (authHeader && apiKey) {
     const masked = log.maskKey(apiKey);
     log.debug("AUTH", `API Key: ${masked}`);
@@ -92,12 +94,18 @@ export async function handleChat(request, clientRawRequest = null) {
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Missing model");
   }
 
+  modelStr = await resolveGatewayTarget(body, modelStr);
   // Per-key access control: a restricted key may call only its listed combos and
   // models. Checked once on the requested target, before bypass, combo expansion
   // and any credential lookup; an allowed combo grants the members it routes to.
   const keyAccess = await getKeyAccessContext(request);
   const keyAccessDenied = await enforceKeyAccess(keyAccess, modelStr);
   if (keyAccessDenied) return keyAccessDenied;
+  return withGatewayRequest({ request, body, target: modelStr, requestedAlias, authenticatedKey: apiKey }, () =>
+    routeChat({ request, body, clientRawRequest, apiKey, settings, modelStr, contextMarker, sessionId, keyAccess }));
+}
+
+async function routeChat({ request, body, clientRawRequest, apiKey, settings, modelStr, contextMarker, sessionId, keyAccess }) {
 
   // Bypass naming/warmup requests before combo rotation to avoid wasting rotation slots
   const userAgent = request?.headers?.get("user-agent") || "";
@@ -159,6 +167,7 @@ export async function handleChat(request, clientRawRequest = null) {
             body: b,
             models: m,
             routerModel: comboCfg.routerModel,
+            signal: process.env.TELE_PROXY_ENABLED === "1" ? request.signal : undefined,
             log,
           })
         : null,
@@ -254,6 +263,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
               body: b,
               models: m,
               routerModel: comboCfg.routerModel,
+              signal: process.env.TELE_PROXY_ENABLED === "1" ? request.signal : undefined,
               log,
             })
           : null,
@@ -277,6 +287,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   let lastHeaders = null;
 
   while (true) {
+    if (process.env.TELE_PROXY_ENABLED === "1") request?.signal?.throwIfAborted();
     const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { requestedModel: requestedModel || model });
 
     // All accounts unavailable

@@ -11,6 +11,7 @@ vi.mock("node:child_process", () => ({
 }));
 
 const { default: DevinCliExecutor } = await import("open-sse/executors/devin-cli.js");
+const { withDispatchContext } = await import("open-sse/services/dispatchContext.js");
 
 // Fake devin ACP subprocess. Mirrors the real CLI's session/new validation:
 // it requires `mcpServers` to be an array, otherwise returns -32602 — this is
@@ -131,6 +132,90 @@ async function runExecute(credentials = {}) {
 }
 
 describe("DevinCliExecutor ACP session/new", () => {
+  it("dispatches only the actual ACP prompt after initialize and session/new", async () => {
+    const sends = [];
+    const { child, acc } = await withDispatchContext({
+      async execute(details, send) {
+        sends.push(details);
+        await Promise.resolve();
+        return send();
+      },
+    }, () => runExecute());
+    expect(sends).toHaveLength(1);
+    expect(sends[0]).toMatchObject({ transport: "devin-acp", policySupported: false });
+    const methods = child.writes.map((line) => JSON.parse(line).method).filter(Boolean);
+    expect(methods).toEqual(["initialize", "session/new", "session/prompt"]);
+    expect(acc).toContain("hello world");
+    expect(acc).not.toContain('"usage"');
+  });
+
+  it("settles one native prompt on ACP completion after first content, without invented usage", async () => {
+    const events = [];
+    const { acc, child } = await withDispatchContext({
+      async execute(details, send) {
+        events.push("dispatch");
+        details.observeNative({
+          onFirstContent: () => events.push("content"),
+          onUsage: () => events.push("usage"),
+          onEnd: (result) => events.push(result),
+        });
+        return send();
+      },
+    }, () => runExecute());
+    expect(child.writes.filter((line) => JSON.parse(line).method === "session/prompt")).toHaveLength(1);
+    expect(acc).toContain("hello world");
+    expect(events).toEqual(["dispatch", "content", { status: "completed", usageComplete: false }]);
+  });
+
+  it("settles a sent native prompt as cancelled when the client closes the stream", async () => {
+    const child = makeFakeChild();
+    const originalWrite = child.stdin.write;
+    let sentPrompt;
+    const promptSent = new Promise((resolve) => { sentPrompt = resolve; });
+    child.stdin.write = (data) => {
+      if (JSON.parse(String(data)).method === "session/prompt") {
+        child.writes.push(String(data));
+        sentPrompt();
+        return true;
+      }
+      return originalWrite(data);
+    };
+    spawnMock.mockReturnValue(child);
+    const events = [];
+    const { response } = await withDispatchContext({
+      execute(details, send) {
+        details.observeNative({ onEnd: (result) => events.push(result) });
+        return send();
+      },
+    }, () => new DevinCliExecutor().execute({ model: "m", body: { messages: [{ role: "user", content: "hi" }] }, credentials: {} }));
+    await promptSent;
+    await response.body.cancel();
+    expect(child.killed).toBe(true);
+    expect(events).toEqual([{ status: "cancelled", usageComplete: false, errorClass: "cancelled" }]);
+  });
+
+  it("does not send the prompt when dispatch rejects", async () => {
+    const { child, acc } = await withDispatchContext({
+      async execute() { throw new Error("dispatch rejected"); },
+    }, () => runExecute());
+    expect(child.writes.some((line) => JSON.parse(line).method === "session/prompt")).toBe(false);
+    expect(acc).toContain("dispatch rejected");
+    expect(acc).toContain("[DONE]");
+  });
+
+  it("rejects required policy before spawning an ACP session", async () => {
+    spawnMock.mockClear();
+    await expect(withDispatchContext({
+      requiredPolicy: true,
+      execute: (_details, send) => send(),
+    }, () => new DevinCliExecutor().execute({
+      model: "swe-1.6-fast",
+      body: { messages: [{ role: "system", content: "trusted policy" }, { role: "user", content: "hi" }] },
+      credentials: {},
+    }))).rejects.toMatchObject({ code: "REQUIRED_POLICY_UNSUPPORTED", status: 422 });
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
   it("sends session/new with mcpServers as an array", async () => {
     const { child } = await runExecute();
     const writes = child.writes.map((w) => JSON.parse(w.trim()));

@@ -16,6 +16,8 @@ import { updateProviderCredentials, checkAndRefreshToken } from "../services/tok
 import { handleComboChat } from "open-sse/services/combo.js";
 import * as log from "../utils/logger.js";
 import { saveRequestUsage } from "@/lib/usageDb.js";
+import { withGatewayRequest, executeGatewayProvider } from "@/lib/teleProxy.js";
+import { assertNativePolicySupported } from "open-sse/services/dispatchContext.js";
 
 // Providers that don't require credentials (noAuth)
 const NO_AUTH_PROVIDERS = new Set(["sdwebui", "comfyui", "veoaifree-web"]);
@@ -73,28 +75,30 @@ export async function handleImageGeneration(request) {
   const keyAccessDenied = await enforceKeyAccess(await getKeyAccessContext(request), modelStr);
   if (keyAccessDenied) return keyAccessDenied;
 
-  // Combo expansion: model may be a combo name → run fallback/round-robin across models
-  const comboModels = await getComboModels(modelStr);
-  if (comboModels) {
-    const comboStrategies = settings.comboStrategies || {};
-    const comboStrategy = comboStrategies[modelStr]?.fallbackStrategy || settings.comboStrategy || "fallback";
-    const comboStickyLimit = settings.comboStickyRoundRobinLimit;
-    log.info("IMAGE", `Combo "${modelStr}" with ${comboModels.length} models (strategy: ${comboStrategy}, sticky: ${comboStickyLimit})`);
-    return handleComboChat({
-      body,
-      models: comboModels,
-      handleSingleModel: (b, m) => handleSingleModelImage(b, m, { wantsStream, binaryOutput, preferredConnectionId, apiKey, endpoint: url.pathname }),
-      log,
-      comboName: modelStr,
-      comboStrategy,
-      comboStickyLimit,
-    });
-  }
-
-  return handleSingleModelImage(body, modelStr, { wantsStream, binaryOutput, preferredConnectionId, apiKey, endpoint: url.pathname });
+  return withGatewayRequest({ request, body, target: modelStr, requestedAlias: modelStr, authenticatedKey: apiKey }, async () => {
+    // Image adapters have prompt-only protocols, not a trusted instruction channel.
+    assertNativePolicySupported({ policySupported: false, transport: "image-generation" });
+    const comboModels = await getComboModels(modelStr);
+    if (comboModels) {
+      const comboStrategies = settings.comboStrategies || {};
+      const comboStrategy = comboStrategies[modelStr]?.fallbackStrategy || settings.comboStrategy || "fallback";
+      const comboStickyLimit = settings.comboStickyRoundRobinLimit;
+      log.info("IMAGE", `Combo "${modelStr}" with ${comboModels.length} models (strategy: ${comboStrategy}, sticky: ${comboStickyLimit})`);
+      return handleComboChat({
+        body,
+        models: comboModels,
+        handleSingleModel: (b, m) => handleSingleModelImage(b, m, { wantsStream, binaryOutput, preferredConnectionId, apiKey, endpoint: url.pathname, signal: request.signal }),
+        log,
+        comboName: modelStr,
+        comboStrategy,
+        comboStickyLimit,
+      });
+    }
+    return handleSingleModelImage(body, modelStr, { wantsStream, binaryOutput, preferredConnectionId, apiKey, endpoint: url.pathname, signal: request.signal });
+  });
 }
 
-async function handleSingleModelImage(body, modelStr, { wantsStream, binaryOutput, preferredConnectionId, apiKey, endpoint } = {}) {
+async function handleSingleModelImage(body, modelStr, { wantsStream, binaryOutput, preferredConnectionId, apiKey, endpoint, signal } = {}) {
   const modelInfo = await getModelInfo(modelStr);
   if (!modelInfo.provider) return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid model format");
 
@@ -102,12 +106,13 @@ async function handleSingleModelImage(body, modelStr, { wantsStream, binaryOutpu
 
   // noAuth providers — no credential needed
   if (NO_AUTH_PROVIDERS.has(provider)) {
-    const result = await handleImageGenerationCore({
+    const result = await executeGatewayProvider({ provider, model, format: "image", signal }, () => handleImageGenerationCore({
       body,
       modelInfo: { provider, model },
       credentials: null,
       binaryOutput,
-    });
+      signal,
+    }));
     if (result.success) return result.response;
     return errorResponse(result.status || HTTP_STATUS.BAD_GATEWAY, result.error || "Image generation failed");
   }
@@ -145,12 +150,13 @@ async function handleSingleModelImage(body, modelStr, { wantsStream, binaryOutpu
       continue;
     }
 
-    const result = await handleImageGenerationCore({
+    const result = await executeGatewayProvider({ provider, model, format: "image", signal, connectionId: credentials.connectionId }, () => handleImageGenerationCore({
       body,
       modelInfo: { provider, model },
       credentials: refreshedCredentials,
       streamToClient: wantsStream,
       binaryOutput,
+      signal,
       onCredentialsRefreshed: async (newCreds) => {
         await updateProviderCredentials(credentials.connectionId, {
           accessToken: newCreds.accessToken,
@@ -177,7 +183,7 @@ async function handleSingleModelImage(body, modelStr, { wantsStream, binaryOutpu
           await updateProviderCredentials(credentials.connectionId, { apiKey: refreshedCredentials.apiKey });
         }
       }
-    });
+    }));
 
     if (result.success) return result.response;
 

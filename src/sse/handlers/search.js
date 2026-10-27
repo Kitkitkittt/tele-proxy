@@ -14,6 +14,7 @@ import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { handleComboChat, getComboModelsFromData } from "open-sse/services/combo.js";
 import { getKeyAccessContext, enforceKeyAccessProvider } from "../services/keyAccess.js";
+import { assertNonGenerationComboPolicySupported } from "@/lib/comboPolicy.js";
 
 /**
  * Handle web search request for the SSE/Next.js server.
@@ -78,6 +79,12 @@ export async function handleSearch(request) {
   const keyAccessDenied = await enforceKeyAccessProvider(await getKeyAccessContext(request), providerInput, comboModels);
   if (keyAccessDenied) return keyAccessDenied;
   if (comboModels) {
+    try {
+      await assertNonGenerationComboPolicySupported(providerInput, "web search");
+    } catch (error) {
+      return errorResponse(error.status || HTTP_STATUS.BAD_REQUEST, error.code === "REQUIRED_POLICY_UNSUPPORTED"
+        ? error.message : "Combo policy could not be resolved");
+    }
     const comboStrategies = settings.comboStrategies || {};
     const comboStrategy = comboStrategies[providerInput]?.fallbackStrategy || settings.comboStrategy || "fallback";
     const comboStickyLimit = settings.comboStickyRoundRobinLimit;
