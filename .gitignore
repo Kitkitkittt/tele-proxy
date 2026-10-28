@@ -53,6 +53,8 @@ docs/*
 !docs/ARCHITECTURE.md
 !docs/observability/
 !docs/observability/**
+!docs/agents/
+!docs/agents/**
 test/*
 open-sse/test/*
 RM.vn.md
