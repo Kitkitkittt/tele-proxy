@@ -14,6 +14,7 @@
 - Wrap image-generation ingress in authenticated request accounting; reject required trusted-instruction policies before prompt-only image adapters send and count actual HTTP generation retries without counting polling or downloads.
 - Account for direct speech, transcription, embedding and video inference without counting uploads, polling or downloads; reject active combo instruction policies on unsupported search/fetch routes before credentials or dispatch.
 - Settle delayed Devin ACP prompts from native completion/cancellation events, preserve physical abort signals, and unregister database shutdown listeners when adapters close.
+- Preserve ordered OpenAI system/developer instructions in Gemini-native fields and reject non-text instruction shapes rather than silently discarding them; suppress Cursor decoded-frame/error debug logs at runtime in feature mode, even when `CURSOR_STREAM_DEBUG=1`.
 
 ## Deployment limits
 - No DNS, ingress, production state, OAuth ownership or client configuration cutover. Target hostname is `proxy.vnibb.xyz`.

@@ -272,7 +272,7 @@ const proxyIntentFailed = (proxyOptions) => {
 
 const CURSOR_STREAM_DEBUG = process.env.CURSOR_STREAM_DEBUG === "1";
 const debugLog = (...args) => {
-  if (CURSOR_STREAM_DEBUG) console.log(...args);
+  if (CURSOR_STREAM_DEBUG && process.env.TELE_PROXY_ENABLED !== "1") console.log(...args);
 };
 
 function isComposerModel(model) {

@@ -8,6 +8,8 @@ New telemetry accepts an explicit attribute/event allowlist. It never serializes
 
 Under the feature flag, legacy request captures (`ENABLE_REQUEST_LOGS` included), Responses event captures, requestDetails body persistence, app logger interpolation and engine debug output are disabled. Targeted raw upstream-error/tool validation logging is suppressed too. New legacy usage records omit API keys and allowlist numeric token fields. Existing historical captures/usage keys are not automatically erased: isolate canary state, restrict existing storage and follow an explicit backup/retention procedure before deleting any production history.
 
+Cursor's `CURSOR_STREAM_DEBUG=1` output is also suppressed by a runtime feature check, including decoded protobuf payloads and error snippets. Importing the module while the feature is off cannot bypass suppression after runtime enablement; feature-off legacy debugging is unchanged.
+
 Inherited Google Analytics is removed from this fork in every mode. It is not runtime-flag gated because statically prerendered dashboard/login HTML could otherwise retain scripts from a feature-off build. Legacy console capture is guarded at its initializer as well as instrumentation startup, including root-layout callers. Production smoke must build with the feature off and start it on to check the static and runtime boundary.
 
 This is a scoped source-side hardening, not proof that every provider, framework or host log is safe. Canary privacy checks must inspect stdout, capture directories, OTLP payloads and retained state using a synthetic sentinel; never use real credentials or proprietary payloads as a test fixture. Docker syslog ingestion of arbitrary original stdout should remain disabled until those checks pass.

@@ -104,3 +104,27 @@ Earlier actual runs exposed policy origin comparison against Next's internal hos
 Final source review found no remaining high-confidence blocker in the reviewed boundaries; this is source review, not a security audit. Final standalone build and serial regressions passed. Unavailable checks and the measured overhead target miss remain explicit promotion gates, not passes.
 
 GitHub push protection initially rejected four Google OAuth client constants inherited from the pinned public upstream import. The repository owner explicitly authorized four targeted `false_positive` bypasses; all four API requests succeeded. Push protection remains enabled. No user OAuth tokens, raw databases, private captures or generated artifacts are included. Gateway feature commit: `e84f534`; review: [draft PR #13](https://github.com/Kitkitkittt/tele-proxy/pull/13). Remaining deployment/evidence changes are a separate commit.
+
+## Delayed advisory validation
+
+Two current defects were reproduced before correction. With `CURSOR_STREAM_DEBUG=1` and runtime `TELE_PROXY_ENABLED=1`, real Cursor JSON/SSE consumers logged synthetic decoded content and error snippets: both new regression cases failed before the runtime guard. The physical localhost OpenAI-to-Gemini executor payload retained only the last system instruction and policy, dropping earlier system/developer instructions: the new wire regression failed before ordered native instruction accumulation.
+
+After correction, the focused serial command below passed **16 files, 336 tests**, with **3 existing expected failures** in unrelated Cursor/CommandCode translator cases. No unexpected failures remained.
+
+```sh
+cd tests
+NODE_OPTIONS=--trace-warnings ./node_modules/.bin/vitest run \
+  translator/bugs-gemini-cursor-commandcode.test.js \
+  unit/cursor-composer-thinking.test.js unit/gemini-native-endpoint.test.js \
+  unit/gemini-contents-normalization.test.js unit/gemini-duplicate-tool-call-ids.test.js \
+  unit/cursor-agent-strict-proxy.test.js unit/cursor-agent-exec-request.test.js \
+  unit/cursor-usage.test.js unit/native-h2-wreq-dispatch.test.js \
+  unit/combo-policy-native.test.js unit/policy-eligibility.test.js \
+  unit/request-ledger.test.js unit/request-ledger-durability.test.js \
+  unit/dashboard-guard.test.js unit/gateway-telemetry.test.js \
+  unit/dispatch-physical-retries.test.js --maxWorkers=1
+```
+
+Separate throwaway Node smoke scenarios passed through real changed paths. Cursor decoded actual synthetic ConnectRPC frames into SSE; client text remained intact, enabled-mode console output omitted both sentinels, and disabled-mode legacy debug output remained available after OFF→ON→OFF runtime toggling. Gemini translated mixed system/developer messages, applied one policy and used the real executor/fetch to a loopback HTTP server: every instruction reached native `systemInstruction` in source order, policy appeared once, tool schema remained intact, and instructions did not enter conversation turns. These used no live provider credentials or upstream services. Node emitted existing experimental-loader/module-type warnings; no warning suppression was added.
+
+The other delayed advisories did not establish new defects against the current source: authenticated chat request wrapping, the exact metrics GET authentication boundary, nonnegative token normalization, policy/client-first-content/fallback telemetry, optional lazy migrations, isolated fail-closed `DATA_DIR`, and SQL.js atomic fsync/flush durability were already implemented. The focused regressions above exercised their relevant boundaries. The stale storage description in `CLAUDE.md` was corrected to the shared SQLite layer. This is bounded advisory validation, not a repository-wide security audit or a new final-artifact build; deployment and overhead gates above remain unchanged.
