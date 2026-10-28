@@ -7,7 +7,7 @@ import { v4 as uuidv4 } from "uuid";
 import zlib from "zlib";
 
 const DEBUG = process.env.CURSOR_PROTOBUF_DEBUG === "1";
-const log = (tag, ...args) => DEBUG && console.log(`[PROTOBUF:${tag}]`, ...args);
+const log = (tag, ...args) => DEBUG && process.env.TELE_PROXY_ENABLED !== "1" && console.log(`[PROTOBUF:${tag}]`, ...args);
 const textDecoder = new TextDecoder();
 
 const PROTOBUF_SCHEMA_VERSION = "1.1.3";

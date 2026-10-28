@@ -15,6 +15,7 @@
 - Account for direct speech, transcription, embedding and video inference without counting uploads, polling or downloads; reject active combo instruction policies on unsupported search/fetch routes before credentials or dispatch.
 - Settle delayed Devin ACP prompts from native completion/cancellation events, preserve physical abort signals, and unregister database shutdown listeners when adapters close.
 - Preserve ordered OpenAI system/developer instructions in Gemini-native fields and reject non-text instruction shapes rather than silently discarding them; suppress Cursor decoded-frame/error debug logs at runtime in feature mode, even when `CURSOR_STREAM_DEBUG=1`.
+- Suppress Cursor protobuf debug logs in feature mode, including decoded tool names, while retaining feature-off debugging.
 
 ## Deployment limits
 - No DNS, ingress, production state, OAuth ownership or client configuration cutover. Target hostname is `proxy.vnibb.xyz`.
