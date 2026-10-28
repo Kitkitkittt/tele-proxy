@@ -55,6 +55,8 @@ docs/*
 !docs/observability/**
 !docs/agents/
 !docs/agents/**
+!docs/adr/
+!docs/adr/**
 test/*
 open-sse/test/*
 RM.vn.md
