@@ -1,3 +1,24 @@
+# tele-proxy
+
+Thin, feature-flagged fork of [9Router](https://github.com/decolua/9router), pinned to `3a978a631ad65529c06e48ce495092d5bba29f46` (`0.5.111`). Intended hostname: `proxy.vnibb.xyz`; public ingress is not activated by this repository.
+
+Adds immutable per-combo additive instruction policies, durable request/physical-attempt accounting, separate monetary bases, authenticated metrics, metadata-only OpenTelemetry/logging, and private self-hosted monitoring profiles. Existing provider adapters and client settings remain in place. Set `TELE_PROXY_ENABLED=1` only with a dedicated absolute `DATA_DIR`; never mount production gateway state into the canary.
+
+- [Canonical requirements and linked tickets](https://github.com/Kitkitkittt/tele-proxy/issues/1)
+- [Inventory](docs/observability/INVENTORY.md), [architecture](docs/observability/ARCHITECTURE.md), [policies](docs/observability/POLICIES.md)
+- [Accounting](docs/observability/ACCOUNTING.md), [privacy](docs/observability/PRIVACY.md), [Langfuse mapping](docs/observability/LANGFUSE_MAPPING.md)
+- [Verification](docs/observability/TEST_REPORT.md), [promotion and rollback](docs/observability/ROLLOUT_ROLLBACK.md)
+
+```sh
+npm ci --ignore-scripts
+npm --prefix tests ci --ignore-scripts
+node scripts/tele-proxy-canary.mjs --samples=40 --concurrency=2
+```
+
+The canary uses only local synthetic providers and isolated temporary state. Native monitoring was exercised; Compose/Langfuse still require separate capacity and runtime validation. The final standalone canary passed all behavior cases but missed the overhead target (15.07ms additional p95 versus 10ms); see the verification report before promotion. Gemini/Muse browser routes report incomplete accounting until generation-wire fixtures are available; they do not fabricate physical attempts. Required instruction policies reject native transports that cannot preserve trusted instructions. Upstream notices and documentation follow.
+
+---
+
 <div align="center">
   <img src="./images/9router.png?1" alt="9Router Dashboard" width="800"/>
   

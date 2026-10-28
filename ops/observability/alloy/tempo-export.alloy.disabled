@@ -1,0 +1,19 @@
+// Optional only: copy to /etc/alloy/tempo-export.alloy and configure run directory.
+// Add otelcol.exporter.otlphttp.tempo.input to batch.gateway.output.traces explicitly.
+otelcol.exporter.otlphttp "tempo" {
+  client {
+    endpoint = "http://tempo:4318"
+    timeout = "5s"
+  }
+  retry_on_failure {
+    initial_interval = "1s"
+    max_interval = "5s"
+    max_elapsed_time = "15s"
+  }
+  sending_queue {
+    enabled = true
+    queue_size = 64
+    num_consumers = 2
+    block_on_overflow = false
+  }
+}

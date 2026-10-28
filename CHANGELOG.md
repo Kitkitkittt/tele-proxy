@@ -1,3 +1,25 @@
+# tele-proxy — unreleased
+
+## Added
+- Immutable per-combo additive policy versions, authenticated editor/API, optimistic concurrency, metadata audit, preview and rollback; old combos remain disabled.
+- Durable logical-request and physical-attempt ledger, idempotent settlement/restart recovery, explicit unknown coverage, immutable tariffs, independent provider/metered/subscription/reference/local cost bases and authenticated usage view.
+- Bounded metadata-only OpenTelemetry/log export, authenticated Prometheus metrics, native dispatch hooks, terminal usage observation, first-content timing and client cancellation propagation.
+- Digest-pinned private monitoring, Langfuse 4.0.0 and optional Tempo profiles; four dashboards, fifteen alerts, bootstrap/backup/restore utilities and isolated synthetic canary.
+
+## Fixed
+- Preserve developer instructions through OpenAI-to-Anthropic translation and required policies independently of compression; reject known unsupported native preservation before dispatch.
+- Fence canary storage against production fallback and disable legacy raw key/body/error retention in feature mode.
+- Count smart-routing System One classification separately from the selected generation, retaining native decision schema and reported usage; abort classifier fetch/body reads on timeout or client cancellation. Required policies reject unsupported native classification before any generation send rather than silently bypassing enforcement.
+- Mount the existing combo policy editor in the live Combos dashboard edit modal and direct new combos to reopen Edit Combo; remove inherited Google Analytics so prerendered artifacts cannot leak external analytics after runtime feature enablement.
+- Wrap image-generation ingress in authenticated request accounting; reject required trusted-instruction policies before prompt-only image adapters send and count actual HTTP generation retries without counting polling or downloads.
+- Account for direct speech, transcription, embedding and video inference without counting uploads, polling or downloads; reject active combo instruction policies on unsupported search/fetch routes before credentials or dispatch.
+- Settle delayed Devin ACP prompts from native completion/cancellation events, preserve physical abort signals, and unregister database shutdown listeners when adapters close.
+
+## Deployment limits
+- No DNS, ingress, production state, OAuth ownership or client configuration cutover. Target hostname is `proxy.vnibb.xyz`.
+- Gemini/Muse browser generation boundaries and hidden transport retries remain explicitly incomplete; no fabricated physical counts. Native Grafana/Prometheus and Alloy/Loki smoke checks passed; Compose/Langfuse runtime still require Docker access/capacity. Full seven-day Langfuse retention is license-gated. The quiet canary's additional p95 overhead was 15.07ms against a 10ms target; synchronous WAL checkpoint latency was profiled without weakening durability.
+- Exact executed checks and remaining limitations are recorded in `docs/observability/TEST_REPORT.md`.
+
 # v0.5.111 (2026-10-26)
 
 ## Features

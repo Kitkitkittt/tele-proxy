@@ -1,0 +1,134 @@
+logging {
+  level = "warn"
+  format = "json"
+}
+
+// One incoming export stream. No debug exporter or payload logging.
+otelcol.receiver.otlp "gateway" {
+  http {
+    endpoint = "0.0.0.0:4318"
+    max_request_body_size = "1MiB"
+  }
+  output {
+    traces = [otelcol.processor.memory_limiter.gateway.input]
+  }
+}
+
+otelcol.processor.memory_limiter "gateway" {
+  check_interval = "1s"
+  limit = "256MiB"
+  spike_limit = "64MiB"
+  output {
+    traces = [otelcol.processor.attributes.defense.input]
+  }
+}
+
+// Defense in depth; app omission is the privacy boundary, not regex masking.
+otelcol.processor.attributes "defense" {
+  action {
+    key = "http.request.header.authorization"
+    action = "delete"
+  }
+  action {
+    key = "http.request.body"
+    action = "delete"
+  }
+  action {
+    key = "http.response.body"
+    action = "delete"
+  }
+  action {
+    key = "gen_ai.prompt"
+    action = "delete"
+  }
+  action {
+    key = "gen_ai.completion"
+    action = "delete"
+  }
+  action {
+    key = "gen_ai.input.messages"
+    action = "delete"
+  }
+  action {
+    key = "gen_ai.output.messages"
+    action = "delete"
+  }
+  action {
+    key = "langfuse.observation.input"
+    action = "delete"
+  }
+  action {
+    key = "langfuse.observation.output"
+    action = "delete"
+  }
+  output {
+    traces = [otelcol.processor.batch.gateway.input]
+  }
+}
+
+otelcol.processor.batch "gateway" {
+  timeout = "2s"
+  send_batch_size = 64
+  send_batch_max_size = 128
+  output {
+    traces = [otelcol.exporter.otlphttp.langfuse.input]
+  }
+}
+
+otelcol.exporter.otlphttp "langfuse" {
+  traces_endpoint = "http://langfuse-web:3000/api/public/otel/v1/traces"
+  client {
+    endpoint = "http://langfuse-web:3000/api/public/otel"
+    headers = {
+      "Authorization" = sys.env("LANGFUSE_OTLP_AUTH"),
+      "x-langfuse-ingestion-version" = "4",
+    }
+    timeout = "5s"
+    compression = "gzip"
+  }
+  retry_on_failure {
+    initial_interval = "1s"
+    max_interval = "5s"
+    max_elapsed_time = "15s"
+  }
+  sending_queue {
+    enabled = true
+    queue_size = 64
+    num_consumers = 2
+    block_on_overflow = false
+  }
+}
+
+// App writes metadata-only JSON; host/container logs are never discovered.
+local.file_match "gateway" {
+  path_targets = [{"__path__" = "/var/log/tele-proxy/gateway.jsonl", "service" = "tele-proxy", "environment" = "canary"}]
+  sync_period = "5s"
+}
+
+loki.source.file "gateway" {
+  targets = local.file_match.gateway.targets
+  forward_to = [loki.process.gateway.receiver]
+}
+
+loki.process "gateway" {
+  // A compromised sender cannot create arbitrary Loki index labels.
+  stage.label_keep { values = ["service", "environment"] }
+  stage.limit {
+    rate = 20
+    burst = 40
+    drop = true
+  }
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+    remote_timeout = "5s"
+    min_backoff_period = "500ms"
+    max_backoff_period = "5s"
+    max_backoff_retries = 3
+    batch_size = "64KiB"
+    batch_wait = "1s"
+  }
+}

@@ -1,0 +1,65 @@
+# Run: promtool test rules alerts.test.yml (working directory: this directory).
+rule_files:
+  - alerts.yml
+evaluation_interval: 30s
+tests:
+  - name: Failed ledger writes surface without a traffic threshold
+    interval: 1m
+    input_series:
+      - series: 'nine_router_ledger_write_failures_total{environment="canary"}'
+        values: '0 0 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: TeleProxyLedgerWriteFailure
+        exp_alerts:
+          - exp_labels:
+              environment: canary
+              severity: critical
+              delivery: dashboard_only
+            exp_annotations:
+              summary: Durable accounting write failed
+              description: The ledger may be incomplete. Operational counters cannot reconstruct authoritative charges.
+              runbook_url: https://github.com/Kitkitkittt/tele-proxy/blob/codex/1-tele-proxy/ops/observability/runbooks.md#ledger-write-failure
+  - name: Idle successful canary does not raise request or missing-usage ratios
+    interval: 1m
+    input_series:
+      - series: 'nine_router_requests_total{environment="canary",combo="quality",outcome="success"}'
+        values: '0+0x20'
+      - series: 'nine_router_attempts_total{environment="canary",provider="mock",outcome="success",reason="unknown"}'
+        values: '0+0x20'
+      - series: 'nine_router_usage_unknown_total{environment="canary",provider="mock"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: TeleProxyRequestFailureRate
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: TeleProxyMissingUsage
+        exp_alerts: []
+  - name: Fewer than twenty failures do not produce a percentage alarm
+    interval: 1m
+    input_series:
+      - series: 'nine_router_requests_total{environment="canary",combo="quality",outcome="error"}'
+        values: '0+1x20'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: TeleProxyRequestFailureRate
+        exp_alerts: []
+  - name: Sustained classified rate limits surface per provider
+    interval: 1m
+    input_series:
+      - series: 'nine_router_attempts_total{environment="canary",provider="mock",outcome="error",reason="rate_limit"}'
+        values: '0+10x20'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: TeleProxyUpstreamRateLimited
+        exp_alerts:
+          - exp_labels:
+              environment: canary
+              provider: mock
+              severity: warning
+              delivery: dashboard_only
+            exp_annotations:
+              summary: More than 10 percent of mock attempts are rate limited
+              description: At least 20 attempts in 10 minutes with sustained rate-limit failures; do not bypass provider quotas.
+              runbook_url: https://github.com/Kitkitkittt/tele-proxy/blob/codex/1-tele-proxy/ops/observability/runbooks.md#fallbacks-and-rate-limits

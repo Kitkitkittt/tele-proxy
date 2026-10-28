@@ -1,0 +1,18 @@
+Monitoring image index evidence: image-manifests.json (public Registry V2 responses, no Docker pull).
+https://registry-1.docker.io/v2/prom/prometheus/manifests/v3.4.2
+https://registry-1.docker.io/v2/grafana/grafana/manifests/12.0.2
+https://registry-1.docker.io/v2/grafana/loki/manifests/3.5.1
+https://registry-1.docker.io/v2/grafana/alloy/manifests/v1.9.2
+https://registry-1.docker.io/v2/grafana/tempo/manifests/2.8.1
+https://registry-1.docker.io/v2/prom/node-exporter/manifests/v1.9.1
+Runtime/protocol source contracts consulted:
+https://grafana.com/docs/alloy/v1.9/reference/components/otelcol/otelcol.exporter.otlphttp/
+https://grafana.com/docs/alloy/v1.9/reference/components/otelcol/otelcol.receiver.otlp/
+https://raw.githubusercontent.com/grafana/loki/v3.5.1/cmd/loki/Dockerfile
+https://raw.githubusercontent.com/grafana/alloy/v1.9.2/Dockerfile
+https://raw.githubusercontent.com/grafana/tempo/v2.8.1/cmd/tempo/Dockerfile
+https://raw.githubusercontent.com/prometheus/node_exporter/v1.9.1/Dockerfile
+https://raw.githubusercontent.com/grafana/tempo/v2.8.1/modules/overrides/config.go
+https://raw.githubusercontent.com/open-telemetry/opentelemetry-collector/v0.125.0/exporter/exporterhelper/internal/metadata/generated_telemetry.go
+Langfuse sources/evidence: langfuse/README.md and langfuse/image-manifests.json.
+Registry existence/native manifests are not runtime validation, a security audit or deployment evidence.

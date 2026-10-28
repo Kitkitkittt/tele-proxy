@@ -121,6 +121,10 @@ docker run --rm -p 20128:20128 \
   9router
 ```
 
+The build copies the root `package.json` and `package-lock.json` and runs `npm ci` with the configured registry/retry flags. Keep both files in the Docker build context; `.dockerignore` permits the lockfile, and `.npmignore` affects npm packaging, not Docker. Install lifecycle scripts remain enabled for native dependencies such as optional `better-sqlite3`.
+
+For the tele-proxy observability build/runtime smoke gate, including build-time feature-off and runtime feature-on checks, use [`docs/observability/ROLLOUT_ROLLBACK.md`](docs/observability/ROLLOUT_ROLLBACK.md).
+
 The Dockerfile uses the official Alpine and npm registries by default. Regional mirrors can be supplied when needed:
 
 ```bash

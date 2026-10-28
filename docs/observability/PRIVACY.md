@@ -1,0 +1,39 @@
+# Tele-proxy privacy boundary
+
+`TELE_PROXY_ENABLED=1` selects metadata-only observability. Disabled mode preserves legacy routing and logging behavior; it is **not** a privacy hardening switch for the original application.
+
+## Omitted at source
+
+New telemetry accepts an explicit attribute/event allowlist. It never serializes request/response bodies, prompts, policy text, code, documents, reasoning, tool arguments/results, headers, raw errors/stacks, API keys or key prefixes. Unknown events and arbitrary error strings are omitted rather than regex-scrubbed. Requested tool-call events mean requested, not executed. Trace/request IDs appear in structured log fields, never metric labels. No baggage/client authentication is forwarded to collectors/providers by this module. Client traceparent is deliberately not trusted or propagated; request roots are server-generated.
+
+Under the feature flag, legacy request captures (`ENABLE_REQUEST_LOGS` included), Responses event captures, requestDetails body persistence, app logger interpolation and engine debug output are disabled. Targeted raw upstream-error/tool validation logging is suppressed too. New legacy usage records omit API keys and allowlist numeric token fields. Existing historical captures/usage keys are not automatically erased: isolate canary state, restrict existing storage and follow an explicit backup/retention procedure before deleting any production history.
+
+Inherited Google Analytics is removed from this fork in every mode. It is not runtime-flag gated because statically prerendered dashboard/login HTML could otherwise retain scripts from a feature-off build. Legacy console capture is guarded at its initializer as well as instrumentation startup, including root-layout callers. Production smoke must build with the feature off and start it on to check the static and runtime boundary.
+
+This is a scoped source-side hardening, not proof that every provider, framework or host log is safe. Canary privacy checks must inspect stdout, capture directories, OTLP payloads and retained state using a synthetic sentinel; never use real credentials or proprietary payloads as a test fixture. Docker syslog ingestion of arbitrary original stdout should remain disabled until those checks pass.
+
+## Diagnostic administration
+
+`/api/observability/privacy` requires a real authenticated dashboard session even when public dashboard viewing is allowed. Mutations reject cross-origin requests. Payload reading is bounded to 4096 bytes before parsing; errors never include submitted content. `PUT` accepts `{projectId,enabled,retentionHours}` with opaque administrative project IDs and 1–24-hour retention. At most 32 projects can opt in. Disabling a project clears its records. `POST` accepts `{projectId,diagnostic}` only after that explicit project opt-in.
+
+Diagnostics remain **metadata-only**, including after opt-in. Allowed diagnostic keys: `event`, `outcome`, `durationMs`, `inputTokens`, `outputTokens`, `upstreamFirstContentMs`, `clientFirstContentMs`; events/outcomes are finite enums, all measurements finite nonnegative bounded numbers. Unknown fields (including content) are rejected, not truncated or regex-redacted. No arbitrary proprietary text is safe merely because regex masking was applied. This deliberately does not offer raw content capture.
+
+Records are capped at 1024 bytes each, 100 per project, 32 projects; API persistence queue is capped at 32 operations. Existing settings persistence is the sole configuration authority. Retention is pruned on each administration operation and every minute while the enabled process is alive; after downtime expired rows are removed at the next access. Data can remain in database backups beyond active retention. This manual authenticated diagnostic endpoint is separate from inference and does not accept client project headers as authorization or attribution.
+
+## Export, logs and metrics
+
+One pinned OpenTelemetry SDK provider sends OTLP HTTP/JSON to the **full** `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` (default `http://127.0.0.1:4318/v1/traces`), intended for Alloy only. No Langfuse request API or synchronous network operation runs on the inference path. `TELE_PROXY_ALLOY_TOKEN` is the optional collector-only bearer credential. Do not set direct Langfuse exporter environment credentials on the gateway. Alloy owns onward Langfuse authentication.
+
+Nonempty `OTEL_EXPORTER_OTLP_HEADERS` or `OTEL_EXPORTER_OTLP_TRACES_HEADERS` causes telemetry initialization to fail closed before exporter creation. The pinned SDK otherwise merges these environment headers even when constructor headers are supplied. The application increments `init_failed` without printing header values; inference and the local ledger continue. Remove those inherited settings and restart before re-enabling export. Only `TELE_PROXY_ALLOY_TOKEN` supplies gateway exporter authorization.
+
+SDK/provider, active export queue, counters, histograms, inflight count, event-loop monitor and log writer share one `Symbol.for("tele-proxy.gatewayTelemetry.v1")` process-global state. Framework route-bundle reevaluation cannot create a second exporter or disconnect `/api/metrics` from inference counters. Separate OS workers still expose their own process-local metrics; deployment scraping must account for each worker. `shutdownTelemetry({reset:true})` explicitly clears shared state for isolated tests only.
+
+Queue defaults: 256 spans total including the active batch, maximum 4096; batches 32 (maximum128); HTTP timeout 2000ms (50–10000ms). Configure `TELE_PROXY_TELEMETRY_QUEUE_SIZE`, `TELE_PROXY_TELEMETRY_BATCH_SIZE`, `TELE_PROXY_TELEMETRY_TIMEOUT_MS`. One batch can be active. SDK transport retry ceiling is five retries with finite export deadline/backoff, independent of ledger accounting; a hung exporter retains only its bounded batch. Queue-full/export failure counters expose drops. No telemetry disk spool is used. Traces start at 100% sampling; no keep-all-errors promise relies on head sampling.
+
+Structured JSON logs contain severity, timestamp, service, environment, event, correlation IDs and finite outcome/reason only. Default output is stdout. `TELE_PROXY_LOG_FILE` uses an asynchronous queue capped at256, rotations at5MiB with two backups (approximately15MiB total plus one bounded line). Directory must preexist and be writable; metadata files are chmod0644 for the isolated collector's read-only volume. File errors increment drop counters without logging their raw error. Configure container stdout rotation separately.
+
+`GET /api/metrics` requires `Authorization: Bearer <TELE_PROXY_METRICS_TOKEN>`; token must be configured and at least16 characters. No dashboard/no-login bypass. Disabled feature returns404. Bind scraping privately too. There are no model, project, request, trace, session, hash, timestamp or key labels. Provider catalog max32 and combo catalog max16 are server configuration (`TELE_PROXY_METRIC_PROVIDERS`, `TELE_PROXY_METRIC_COMBOS`), overflow maps to `other`. Environment/outcome/reason/token-type/transport values are finite. Each metric uses only its needed dimensions, not their cross-product. Attempt series ceiling:6 environments ×33 providers ×4 outcomes ×8 reasons; request series ceiling6×17×4. Actual process has one environment. Histogram buckets cover50ms through600s plus infinity.
+
+Process RSS/CPU and event-loop delay are exposed without adding host collection dependencies. Host/container/disk metrics require separately provisioned infrastructure collectors; no Docker socket is mounted by application code. Metrics are operational only; the durable ledger remains authoritative and unsampled.
+
+See [LANGFUSE_MAPPING.md](LANGFUSE_MAPPING.md) for unknown/zero cost handling and the v4 validation boundary.

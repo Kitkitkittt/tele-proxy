@@ -1,0 +1,90 @@
+# Accounting ledger
+
+## Authority and compatibility
+
+`src/lib/requestLedger.js` stores unsampled metadata through the existing `getAdapter()` abstraction. It supports the existing Bun, better-sqlite3, node:sqlite and sql.js adapters without depending on WAL. `TELE_PROXY_ENABLED=1` enables writes and the ledger view. Disabled inference keeps its existing behavior. Historical `usageHistory` and upstream reference-price tables are deliberately not imported as cash spend. The legacy Overview retains its reference-cost meaning; the **Ledger** tab is the authoritative multi-basis reconciliation view.
+
+The additive migration `2026102702-request-ledger.js` creates only `teleProxy*` tables/indexes, atomically stamped by `_meta.teleProxyLedgerSchemaVersion=1`. It does not change old combo/key rows or the central schema version. Back up the application database before first enablement. Flag rollback leaves additive tables available; an older gateway can ignore them. Restore the complete database backup only while the gateway is stopped, with the matching application revision. Never share an actively written canary database with production.
+
+Ledger mutations acknowledge persistence before returning, including ingress, attempt insertion/count, terminal usage, recovery, administrative evidence and timing observations. The sql.js adapter exposes a synchronous `flush()` acknowledgement: it exports only when dirty, writes a same-directory private temporary file, fsyncs that file, atomically renames it over the database, then fsyncs the parent directory. The ledger calls it after committed mutations rather than relying on the ordinary 100 ms debounced save or shutdown handlers. Native SQLite adapters keep their existing synchronous commit/durability behavior; the ledger does not export or copy their database. This does not require WAL.
+
+Persistence errors reject the ledger operation; they are not successful accounting acknowledgements. A physical dispatch must await `startAttempt()` and must not treat a rejected insertion as recorded. A failed save can leave committed in-memory state (and a failure after rename can leave the new disk image), so rejection means durability is uncertain, not that the transaction was rolled back. Stable attempt IDs allow an explicit retry to acknowledge the same row without incrementing its count. Use one writer process per sql.js file, on a filesystem supporting atomic same-directory rename and file/directory fsync; do not share a live database across gateway processes.
+
+## Identity and lifecycle
+
+- Each ingress receives a server-generated UUID request ID. Each actual dispatch receives a different UUID attempt ID, including retry, token-refresh redispatch and fallback. Local route selection or policy rejection is not an upstream dispatch.
+- Attempt primary key and `UNIQUE(request_id, sequence)` prevent duplicate identities. Sequence allocation and attempt-count increment occur in one transaction. A caller may supply a stable internal attempt ID to replay the same insertion, not a client header ID.
+- `finishAttempt` and `finishRequest` are first-finalization-wins transactions. A replay returns the stored record without adding usage/cost. Exporter retries do not write ledger totals.
+- `recordDownstreamFirstContent(attemptId, elapsedMs)` adds the first downstream-content timing atomically, even after upstream completion; later observations cannot rewrite it or re-finalize usage.
+- Call `recoverAbandoned()` once on startup, before accepting requests against that isolated state. Unterminated attempts become `abandoned`, usage/cost unknown; logical requests become abandoned/incomplete. Do not run recovery against another live writer. It is idempotent and does not turn process death into success or zero cost.
+- Missing terminal usage and cancellation without usage remain unknown even when HTTP headers or content were seen. Root accounting completeness requires at least one attempt and complete usage plus a primary cost basis for every attempt. `finishRequest(..., {accountingIncomplete:true})` forces incomplete when a route's physical boundary cannot be observed, even after earlier known attempts; it never invents a dispatch. Request status and accounting completeness are separate.
+
+The `/v1/audio/speech` ingress uses the same authenticated logical root and immutable combo-policy snapshot for direct models and aliases. Speech input is not a trusted instruction channel: an active required policy is rejected with HTTP 422 before credential selection or synthesis, with zero attempts; an optional active policy is recorded as unsupported, never appended to spoken text. Disabled/off policies preserve the adapter payload. Each HTTP synthesis send (including Edge refresh redispatch and Ollama model/voice retries) is marked individually at the existing physical fetch boundary. Token bootstrap, voice/model discovery, downloads, and polling are not generation attempts. Binary audio without terminal token usage records a successful send with unknown usage/cost, not free inference. The local-device subprocess reports unsupported accounting without inventing a provider attempt; its request stays incomplete. `tests/unit/tts-ledger.integration.test.js` exercises the real speech API route, authenticated persistence, policy rejection and native network mock boundary; checks are delegated to the integration owner.
+
+Direct `/v1/audio/transcriptions` and `/v1/embeddings` requests enter the authenticated logical root after model/key access checks; neither route expands combo aliases. STT passes only model metadata into root accounting, never multipart audio, filenames or prompts. HTTP transcription and embedding inference sends, including refresh redispatch, receive individual physical attempts. AssemblyAI upload and polling remain ancillary, and Gemini Live STT explicitly marks accounting incomplete without inventing a physical attempt. Upstream numeric embedding usage is observed before response normalization; missing transcription usage or tariff evidence remains unknown, not a zero or inferred token count. `tests/unit/audio-embedding-ledger.integration.test.js` exercises isolated real routes with only the collector/network boundary mocked.
+For embedding operations only, a safe nonnegative integer `prompt_tokens` with an equal `total_tokens` and absent output fields establishes protocol-defined zero generated tokens. The observer adds that zero only to accounting metadata; it never changes response bytes. Missing usage, malformed counts or inconsistent totals remain unknown. Chat and transcription responses never inherit this embedding-only rule.
+
+
+Cursor AgentService observes decoded events separately for each physical HTTP/2 session. A delayed empty turn ends its own failed attempt with unknown usage before a tail-only recovery opens another attempt; recovered content never belongs to the empty attempt. Only the successful session receives its own first-content timing and terminal token estimate (`estimated: true`), calculated from that session's replay frame and decoded output length. The binary protocol currently exposes no provider-reported terminal usage. Cancellation finalizes only the active session once. The aggregate client stream is not an additional generation and is never reused as a physical-session observation; callbacks export numeric usage/model/status only, not decoded text or tool arguments. With the feature disabled, native observation callbacks are absent and the existing recovery policy is unchanged.
+
+Ingress passes only an authenticated internal `apiKeys.id`, never bearer text, key prefixes, emails or arbitrary project/session headers. The ledger verifies key existence and snapshots an administrative key-to-project/contract mapping at ingress. Changes do not alter a running request's approved contract. Unknown key/project/session is SQL `NULL`; contract is `unknown`. Sessions are not linked from untrusted headers. Connection IDs become keyed HMAC pseudonyms only when `TELE_PROXY_PSEUDONYM_SECRET` is set; otherwise they are omitted. Rotate this independent secret only with the understanding that pseudonym correlation changes.
+
+No mandatory budget reservation feature was found in the inspected checkout; this extension does not create a budget engine or weaken a reservation boundary. Ledger failures are surfaced to the integration's accounting-degradation counters rather than confused with telemetry exporter availability. If mandatory budget reservation is later configured, its authoritative failure must remain fail-closed before dispatch.
+
+## Usage normalization
+
+Only allowlisted nonnegative safe-integer usage fields and numeric cache/reasoning detail fields are stored. Prompts, responses, IDs, errors and arbitrary nested provider objects are excluded.
+
+| Provider shape | Normalized convention |
+| --- | --- |
+| OpenAI Chat / Responses | `prompt_tokens`/`input_tokens` and `completion_tokens`/`output_tokens` are inclusive. Cached/reasoning details are subsets, not extra tokens. |
+| Anthropic | Base `input_tokens` excludes cache reads/writes; normalized input is base + `cache_read_input_tokens` + `cache_creation_input_tokens`. Output remains inclusive. |
+| Gemini | Input is `promptTokenCount`; output is candidates + `thoughtsTokenCount`; cached content is a subset of input. |
+| Missing/malformed/unsupported usage | Counts not established by numeric fields are null; no inference from `total_tokens` alone. |
+
+Provenance is `reported`, explicit `estimated`, or `unknown`. Integrators must mark token-estimator output with `usageSource: "estimated"`; estimated values must not overwrite terminal provider-reported usage. Impossible subsets and overflowing counts become unknown. Token estimates are not tokenizer measurements. Model response identity is stored separately from requested upstream model and client alias.
+
+Anthropic five-minute and one-hour cache writes can use separate `cacheWrite5mMicrosPerMillion` and `cacheWrite1hMicrosPerMillion` tariff rates. When either is configured, both duration counts must be reported and sum to the aggregate cache writes; missing duration evidence means unknown cost rather than applying the wrong rate. A common `cacheWriteMicrosPerMillion` rate remains available when the contract actually uses one rate.
+
+## Monetary bases
+
+Every monetary column is integer micro-currency units: USD 1 = 1,000,000 micro-USD. Tariff rates are integer micro-currency units **per million tokens**. Products use `BigInt`; all non-overlapping categories are summed and rounded once, half-up, to an integer micro-unit. Unsafe final amounts remain null.
+
+Tariffs are immutable rows keyed by provider, exact upstream model, approved contract, effective date and basis. Each has currency and a bounded administrator-supplied evidence reference, not a credential or invoice document. The attempt pins applicable snapshots at dispatch. A different returned model requires an exact applicable tariff already present at dispatch; later backdated configuration never retroactively fills an unknown estimate. Alias names are never tariff keys. Missing positive-category rates mean unknown cost. Different currencies are never combined or silently converted.
+Reported charge currency and reference currency are stored separately (`providerReportedCurrency`, `referenceCurrency`) from the actual-tariff primary currency. A valid EUR provider charge is retained beside a USD tariff estimate without conversion. Invoice/allocation configuration currently requires the attempt's primary currency; supply a matching currency or leave reconciliation unknown. Summaries group each basis by its own currency using integer accumulation.
+
+
+| Column / view | Interpretation |
+| --- | --- |
+| `providerReportedChargeMicros` | Charge explicitly reported by upstream with currency and evidence source; not assumed from tokens. |
+| `invoiceReconciledSpendMicros` | Administrator-recorded invoice evidence, immutable/idempotent per attempt. Separate from provider-reported charge. |
+| `meteredCostEstimateMicros` | Estimate under the exact configured actual tariff; not an invoice. |
+| Fixed fees | `teleProxyFixedFees` stores one subscription/local fee per explicit billing period. It is never multiplied by requests. |
+| `subscriptionAllocationMicros` | Explicit managerial allocation with evidence; not marginal billing. |
+| `apiEquivalentValueMicros` | Counterfactual reference tariff; not spend, guaranteed savings or subscription fee. |
+| `localInfrastructureAllocationMicros` | Explicit assumption-based allocation, not a model API charge. |
+| null | Unknown, not zero. Totals include only known entries; coverage must accompany totals. |
+
+Subscription marginal cost is zero only when an administrator supplies a subscription tariff, plan evidence reference and `zeroMarginalFee: true`, and terminal usage exists. Otherwise it is unknown. A local route has unknown marginal cost unless separately allocated; reference valuation can still exist. Fixed fees and allocation must never be added to every request. One built-in tracing cost field cannot replace these bases.
+
+`costStatus` describes a primary cash-related basis (`reported`, `estimated`, `reconciled`, or `unknown`); reference-only value does not make primary cost coverage known. The usage view shows request/attempt counts independently, unknown-usage and unknown-cost attempt counts, per-currency totals, fees, price evidence and per-request attempt drilldown. It never adds monetary bases together. A single summary can contain known charges and unknown estimates; do not treat its partial sum as total spend.
+
+## Administrative API and fixtures
+
+`/api/usage/ledger` requires a valid existing dashboard JWT even when ordinary dashboard login is disabled. POST rejects cross-origin mutation and non-JSON/oversized configuration. No inference API key grants ledger administration. GET accepts ISO `from`, `to`, bounded `limit`, or `requestId` to inspect attempts. Responses use `Cache-Control: no-store`.
+
+POST actions (camelCase fields):
+
+- `attribution`: `keyId`, `projectId`, `contractId`. Key ID must already exist; project/contract are approved opaque administrative IDs.
+- `tariff`: `provider`, `model`, `contractId`, `basis` (`metered`/`reference`), `billingMode` (`metered`/`subscription`/`local`), `currency`, `effectiveFrom`, optional `effectiveTo`, `evidenceSource`, optional integer `inputMicrosPerMillion`, `outputMicrosPerMillion`, `cachedInputMicrosPerMillion`, `cacheWriteMicrosPerMillion`, `reasoningMicrosPerMillion`, and subscription `zeroMarginalFee`.
+- `fixed_fee`: `periodStart`, `periodEnd`, `currency`, `amountMicros`, `billingMode` (`subscription`/`local`), `evidenceSource`.
+- `reconcile`: `attemptId`, `basis` (`invoice`/`subscription_allocation`/`local_allocation`), `amountMicros`, `currency`, `evidenceSource`. Repeating identical evidence is safe; conflicting evidence is rejected rather than overwritten.
+- `retention`: optional `retentionDays`, default 90 (valid 1–3650).
+
+Use evidence identifiers such as `synthetic-contract-v1`, never account details, secret URLs, raw invoices or tokens. Example synthetic tariff rates: input 2,000,000 and output 4,000,000 micro-USD per million tokens price 1,000 input + 200 output tokens at 2,800 micro-USD. These are test numbers, not provider prices.
+
+## Retention and verification
+
+`pruneLedger({retentionDays:90})` transactionally deletes terminal requests and their attempts older than the cutoff. It never deletes inflight work; immutable tariffs and fixed-fee evidence are retained. Startup/daily scheduling belongs to the gateway lifecycle; authenticated action `retention` is also available. No background timer is created by importing the ledger module. Disk space reclamation follows the existing adapter's persistence behavior; this function does not assume WAL checkpoints or issue a blocking VACUUM.
+
+`tests/unit/request-ledger.test.js` contains deterministic real in-memory sql.js fixtures for inclusive cache/reasoning normalization, malformed usage, integer rounding/overflow, unknown/subscription/local/reference pricing, additive migration, duplicate finish, recovery, attempt uniqueness, attribution, immutable evidence and admin permissions. `tests/unit/request-ledger-durability.test.js` uses real disk files, an abruptly exiting child process without shutdown flush, and reopen-before-close assertions for acknowledged attempts, durable abandonment recovery, terminal usage and downstream timing. It also injects file-fsync/rename failures to assert rejection before dispatch and preservation of the previous complete disk image. Checks were not run by the accounting implementation worker; the integration owner records actual execution in `TEST_REPORT.md`. Real upstream price evidence, invoice reconciliation, production retention cadence and each deployed adapter still require deployment-specific validation.
