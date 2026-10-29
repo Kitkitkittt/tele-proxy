@@ -114,7 +114,7 @@ export function claudeToOpenAIResponse(chunk, state) {
         state.serverToolBlockIndex = -1;
         break;
       }
-      const toolCall = state.toolCalls.get(chunk.index);
+      const toolCall = state.toolCalls?.get(chunk.index);
       if (toolCall && toolCall.function.arguments === "" && state.claudeToolInputs?.has(chunk.index)) {
         // Initial input is complete only when no argument fragments replaced it.
         // Sending it at start would prepend {} to subsequent streamed JSON.
