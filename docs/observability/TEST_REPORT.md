@@ -471,3 +471,17 @@ Observed during the same window: unauthenticated loopback `/v1/models` returns 2
 
 No rollback was rehearsed for this switch. `deployment.json` now records the authorization and the scope limits.
 
+#### 2026-10-30 egress-log fixes and close-out deploy (`8c22d9a3`)
+
+Source `8c22d9a33f24ecdb4c7c01e2561a2e85daa98702`, release `8c22d9a3-20261029T183114Z`, 3,598 files, manifest `ba6abe472e3535bab3a03f9e8860022af04890818bd6e62fe65159c29168f910`. Snapshot `pre-8c22d9a3-20261029T183228Z` via `Connection.backup()`, `quick_check=ok`, 12 combos on the copy; model catalogs excluded, so a restore loses them.
+
+Two egress-logging gaps remained after the previous pass and are fixed here. `open-sse/utils/proxyFetch.js` printed the **full upstream URL including the query string** from its TLS-certificate fallback warning even in feature mode, while every sibling warning in that same file was already guarded — the path is reachable from Xiaomi login hops whose URLs carry signed callback params. The login-start route also logged `error.message` and returned it in the HTTP 500 body from a try-block wrapping egress hops. Both now emit a fixed event and generic body in feature mode, full text with the feature off. `tests/unit/egress-log-redaction.test.js` fails against the pre-fix tree on both counts, and the feature-off assertions pass either way, which is what makes the guard meaningful.
+
+Full offline suite after the change: **4,626 passed, 0 failed**, 52 skipped/pending, 1 todo, 426 files, network namespace unshared with a credential-free `HOME`.
+
+Acceptance: **25/25 behavior cases passed**, but this run's timing **failed at +17.237 ms**, so the canary exited 2. The ten-run repeatability gate remains open. The deploy proceeded under the owner's instruction to finalize and redeploy; it is not recorded as a gate pass.
+
+Post-switch: health 200 loopback and public; public `/api/metrics` 404; `/v1/models` 200 with 850 entries; dashboard 307 → `/login`; `cutover.py --check` 303 connections / 9 nodes / 7 keys / 12 combos; `NRestarts=0`. Both TLS-fallback branches and the route's feature guard are present in the compiled release.
+
+**Evidence limit:** these two sites need a real certificate failure or a genuine egress exception to exercise at runtime, so production proves only that the compiled branches exist. Their behavioural proof is the unit regression, not a live request. No rollback was rehearsed.
+
