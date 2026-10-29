@@ -1,6 +1,6 @@
 # Verification report
 
-Sections through "Delayed advisory validation" describe observations from 2026-10-27–28: synthetic/canary evidence, not production promotion or a security audit. The 2026-10-29 cutover and later redeploys are recorded in dated sections below; none retroactively changes historical failures or unavailable checks. **Latest recorded deployed source: `8c22d9a33f24ecdb4c7c01e2561a2e85daa98702`, release `8c22d9a3-20261029T183114Z`** (supersedes the `da851bcf`, `500c42b9` and `a73c43a7` pins named later in this file). The current user explicitly authorizes further implementation, commit and redeployment; historical planning-only/canary-only authority is not current authority. Only checks explicitly dated 2026-10-30 were run in this session.
+Sections through "Delayed advisory validation" describe observations from 2026-10-27–28: synthetic/canary evidence, not production promotion or a security audit. The 2026-10-29 cutover and later redeploys are recorded in dated sections below; none retroactively changes historical failures or unavailable checks. **Latest recorded deployed source: `73fa569ae81f5eb3962975bcfb94ce8b26fcd9da`, release `73fa569a-20261029T190233Z`** (supersedes the `da851bcf`, `500c42b9` and `a73c43a7` pins named later in this file). The current user explicitly authorizes further implementation, commit and redeployment; historical planning-only/canary-only authority is not current authority. Only checks explicitly dated 2026-10-30 were run in this session.
 ## Remaining-ticket verification checkpoint
 
 - Network-isolated full Vitest run: 401 files passed, 18 failed, 16 skipped; 4,522 tests passed, 40 failed, 99 skipped, 14 expected failures and one todo. Failures include unavailable dependencies, network-denied live calls, snapshot mismatches and behavioral assertions; they are not all classified as pre-existing. Generated snapshot updates were discarded.
@@ -484,4 +484,22 @@ Acceptance: **25/25 behavior cases passed**, but this run's timing **failed at +
 Post-switch: health 200 loopback and public; public `/api/metrics` 404; `/v1/models` 200 with 850 entries; dashboard 307 → `/login`; `cutover.py --check` 303 connections / 9 nodes / 7 keys / 12 combos; `NRestarts=0`. Both TLS-fallback branches and the route's feature guard are present in the compiled release.
 
 **Evidence limit:** these two sites need a real certificate failure or a genuine egress exception to exercise at runtime, so production proves only that the compiled branches exist. Their behavioural proof is the unit regression, not a live request. No rollback was rehearsed.
+
+#### 2026-10-30 review fix and redeploy (`73fa569a`)
+
+A two-axis review of `8c22d9a3` found no defect in the fixes themselves but three real problems, all corrected here.
+
+| Finding | Correction |
+|---|---|
+| `proxyFetch.js` had the warning duplicated across an if/else, so a later message edit could diverge from the other six guarded sites — and my comment claiming they were "guarded the same way" was false, since those suppress and this one emits a variant. | One call with a conditional suffix: `...retrying with insecure TLS${featureOn ? "" : `: ${url}`}`. |
+| The new test's `not.toContain(SENTINEL)` was subsumed by `not.toContain(url)` — SENTINEL is inside the URL. | Dropped, with a comment saying why. |
+| Release pointers were stale after the previous deploy: `TEST_REPORT.md`, `INVENTORY.md`, `ROLLOUT_ROLLBACK.md` and `IMPROVEMENT_PLAN.md` still named `a73c43a7` as current, `CHANGELOG.md` attributed `a73c43a7`'s +4.230 ms pass to `8c22d9a3` and said "three releases" where four existed, and `INVENTORY.md` pinned the checkout hash from before the file was written. | All corrected to `73fa569a`; the rollback chain now lists every frozen point in order and states that `a73c43a7` keeps the security fixes. |
+
+Source `73fa569ae81f5eb3962975bcfb94ce8b26fcd9da`, release `73fa569a-20261029T190233Z`, 3,598 files, manifest `7c8d7a6e18893d66b1ffe252e65f313e0793debff30f0a9aa2e84b0c19bb57ae`. Snapshot `pre-73fa569a-20261029T190340Z`, `quick_check=ok`, 12 combos on the copy.
+
+Offline suite: **4,626 passed, 0 failed**, 52 skipped/pending, 1 todo, 426 files. Acceptance: **25/25 cases**, timing **passed at +2.790 ms**, exit 0 — the first passing run of this sequence, and still one run against a ten-run gate that stays open.
+
+Post-switch: health 200 loopback and public; public `/api/metrics` 404; dashboard 307 → `/login`; `cutover.py --check` 303 connections / 9 nodes / 7 keys / 12 combos; `NRestarts=0`; `diff -r` confirms the frozen release matches the artifact that was tested, apart from the runtime `route-cache` directory.
+
+The evidence limit from the previous section still applies: these two logging sites require a real certificate failure or egress exception to exercise at runtime, so their proof is the unit regression.
 

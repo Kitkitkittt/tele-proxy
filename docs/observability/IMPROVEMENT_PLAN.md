@@ -1,6 +1,6 @@
 # tele-proxy improvement and cross-machine handoff plan
 
-Planning baseline: 2026-10-28; deployment status corrected 2026-10-30. Repository: `Kitkitkittt/tele-proxy`; development branch: `codex/1-tele-proxy`; review: [draft PR #13](https://github.com/Kitkitkittt/tele-proxy/pull/13). **Latest recorded native deployment: source `8c22d9a33f24ecdb4c7c01e2561a2e85daa98702`, release `8c22d9a3-20261029T183114Z`**, made under explicit owner authorization after the open gate was presented; see the [deploy record](TEST_REPORT.md#2026-10-30-egress-log-fixes-and-close-out-deploy-8c22d9a3). The performance gate remains open. Original cutover/browser observations remain dated evidence, not new checks. No Docker image deployment is implied.
+Planning baseline: 2026-10-28; deployment status corrected 2026-10-30. Repository: `Kitkitkittt/tele-proxy`; development branch: `codex/1-tele-proxy`; review: [draft PR #13](https://github.com/Kitkitkittt/tele-proxy/pull/13). **Latest recorded native deployment: source `73fa569ae81f5eb3962975bcfb94ce8b26fcd9da`, release `73fa569a-20261029T190233Z`**, made under explicit owner authorization after the open gate was presented; see the [deploy record](TEST_REPORT.md#2026-10-30-egress-log-fixes-and-close-out-deploy-8c22d9a3). The performance gate remains open. Original cutover/browser observations remain dated evidence, not new checks. No Docker image deployment is implied.
 
 ## Status as of 2026-10-30
 
