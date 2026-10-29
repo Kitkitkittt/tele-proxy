@@ -1,37 +1,58 @@
-import { it, expect, vi, afterEach } from "vitest";
+import { it, expect, vi, afterEach, beforeEach } from "vitest";
 import { createServer } from "node:http";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
+import { spawnSync } from "node:child_process";
 import https from "node:https";
 import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { proxyAwareFetch } from "../../open-sse/utils/proxyFetch.js";
 import { transcribeCodex, codexHttpFetch } from "../../open-sse/handlers/codexStt.js";
-import { convertAudio, readBounded } from "../../open-sse/handlers/codexSttAudio.js";
+import { readBounded } from "../../open-sse/handlers/codexSttAudio.js";
 
-function wav(seconds = 0.02) {
-  const pcm = Buffer.alloc(Math.floor(48000 * seconds) * 4);
+// Real conversion needs the external encoder; skip only those cases when absent
+// so transport coverage keeps running on minimal hosts.
+const hasFfmpeg = spawnSync("ffmpeg", ["-version"], { stdio: "ignore" }).status === 0;
+
+const audio = vi.hoisted(() => ({ convert: null }));
+vi.mock("open-sse/handlers/codexSttAudio.js", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    convertAudio: (...args) => audio.convert ? audio.convert(...args) : actual.convertAudio(...args),
+  };
+});
+const { convertAudio } = await import("open-sse/handlers/codexSttAudio.js");
+
+function wav(seconds = 0.02, sampleRate = 48000, channels = 2) {
+  const pcm = Buffer.alloc(Math.floor(sampleRate * seconds) * channels * 2);
   const b = Buffer.alloc(44 + pcm.length); b.write("RIFF"); b.writeUInt32LE(b.length - 8, 4); b.write("WAVEfmt ", 8);
-  b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(2, 22); b.writeUInt32LE(48000, 24); b.writeUInt32LE(192000, 28); b.writeUInt16LE(4, 32); b.writeUInt16LE(16, 34); b.write("data", 36); b.writeUInt32LE(pcm.length, 40); return b;
+  b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(channels, 22); b.writeUInt32LE(sampleRate, 24);
+  b.writeUInt32LE(sampleRate * channels * 2, 28); b.writeUInt16LE(channels * 2, 32); b.writeUInt16LE(16, 34);
+  b.write("data", 36); b.writeUInt32LE(pcm.length, 40); return b;
 }
-function form(extra = {}) {
-  const f = new FormData(); f.set("model", "cx/transcribe"); f.set("file", new File([wav()], "input.wav", { type: "audio/wav" }));
+function form(extra = {}, bytes = wav()) {
+  const f = new FormData(); f.set("model", "cx/transcribe"); f.set("file", new File([bytes], "input.wav", { type: "audio/wav" }));
   for (const [k,v] of Object.entries(extra)) f.set(k,v); return f;
 }
 const credentials = { authType: "oauth", accessToken: "test-token", providerSpecificData: { workspaceId: "test-account", baseUrl: "https://untrusted.invalid" } };
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
+beforeEach(() => { audio.convert = null; });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); audio.convert = null; });
 
-it("converts real stereo 48k WAV to mono24k PCM16 and removes temporary files", async () => {
-  const before = (await readdir(tmpdir())).filter((s) => s.startsWith("9router-codex-stt-"));
+it.skipIf(!hasFfmpeg)("converts real stereo 48k WAV to mono24k PCM16 and removes temporary files", async () => {
+  const leftovers = async () => (await readdir(tmpdir())).filter((s) => s.startsWith("9router-codex-stt-"));
+  const before = await leftovers();
   const result = Buffer.from(await (await convertAudio(new File([wav()], "in.wav"), new AbortController().signal)).arrayBuffer());
   expect(result.toString("ascii", 0, 4)).toBe("RIFF"); expect(result.readUInt16LE(22)).toBe(1); expect(result.readUInt32LE(24)).toBe(24000); expect(result.readUInt16LE(34)).toBe(16);
-  expect((await readdir(tmpdir())).filter((s) => s.startsWith("9router-codex-stt-"))).toEqual(before);
+  expect(await leftovers()).toEqual(before);
 });
-it("rejects malformed and overlong audio and cleans up", async () => {
+it.skipIf(!hasFfmpeg)("rejects malformed and overlong audio and cleans up", async () => {
   await expect(convertAudio(new File(["invalid"], "in.wav"), new AbortController().signal)).rejects.toMatchObject({ status: 400 });
   await expect(convertAudio(new File([wav(121)], "in.wav"), new AbortController().signal)).rejects.toMatchObject({ status: 400 });
 });
 it("sends only the converted file and projects upstream metadata out of the response through a local relay", async () => {
+  // Conversion is covered above; this case owns the wire format and projection.
+  audio.convert = async () => new Blob([wav(0.02, 24000, 1)], { type: "audio/wav" });
   let observed;
   const server = createServer(async (req, res) => {
     const chunks = []; for await (const c of req) chunks.push(c);

@@ -22,10 +22,13 @@
 - Preserve Claude tool-start input on streamed Gemini responses, detect image-only combo output, and accept Responses SSE events identified by their JSON type.
 - Preserve malformed cache/reasoning usage markers through observation so ledger pricing remains unknown; cover project diagnostic authorization and attribution with isolated regressions.
 - Suppress Cursor protobuf debug logs in feature mode, including decoded tool names, while retaining feature-off debugging.
+- Reuse compiled static pricing/capability globs, query only the requested provider's pricing overrides, and reuse generation attributes at settlement without changing pricing precedence, usage accounting or durability.
+- Repair stale offline-test transport boundaries, opt live-provider discovery in explicitly, skip absent cloud/ffmpeg prerequisites visibly, and remove the obsolete lowdb benchmark and source-text assertions.
 
 ## Deployment limits
-- Native systemd gateway deployed 2026-10-29 at `tele-proxy.vnibb.xyz`, preserving old-host clients and migrated authentication/combos/history under one OAuth owner. Frozen source `785eeb261d688bf5071f13c700e153b3f93497b2`; dated acceptance and current-state rollback evidence are in `docs/observability/TEST_REPORT.md` and `ROLLOUT_ROLLBACK.md`. No client configuration changed.
+- Native systemd gateway deployed 2026-10-29 at `tele-proxy.vnibb.xyz`, preserving old-host clients and migrated authentication/combos/history under one OAuth owner. Latest recorded source `da851bcfb6ccad7ee80f2dd8d5e50badfea9686b`, release `da851bcf-20261029T082307Z`; dated acceptance and current-state rollback evidence are in `docs/observability/TEST_REPORT.md` and `ROLLOUT_ROLLBACK.md`. No client configuration changed.
 - Gemini/Muse browser generation boundaries and hidden transport retries remain incomplete. Full monitoring/Compose/Langfuse runtime, supported full retention and backend restore remain unverified; sudo Docker access exists, but root storage is below the documented reserve. Historical overhead results remain in the verification report.
+- Latest isolated candidate passed all 25 ingress scenarios in each of ten alternating runs plus browser-policy-to-wire and inference-linked diagnostic privacy smoke; only 4/10 runs met the unchanged `<10 ms` p95 gate. No candidate redeploy; production remains `da851bcf`.
 - Exact executed checks and remaining limitations are recorded in `docs/observability/TEST_REPORT.md`.
 
 ## Security

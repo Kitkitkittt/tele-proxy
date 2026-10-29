@@ -169,32 +169,34 @@ describe("openaiToClaudeRequest", () => {
 });
 
 describe("openaiToClaudeResponse", () => {
-  it("omits empty Read pages tool argument before emitting Claude input deltas", () => {
+  it("omits empty Read pages tool argument through stream finish", () => {
     const state = { toolCalls: new Map() };
-    const chunk = {
-      id: "chatcmpl-test",
-      model: "gpt-test",
-      choices: [{
-        delta: {
-          tool_calls: [{
-            index: 0,
-            id: "call_read",
-            function: {
-              name: "Read",
-              arguments: JSON.stringify({
-                file_path: "/tmp/example.txt",
-                offset: 0,
-                limit: 120,
-                pages: ""
-              })
-            }
-          }]
-        }
-      }]
-    };
-
-    const result = openaiToClaudeResponse(chunk, state);
-    const inputDelta = result.find(event => event.delta?.type === "input_json_delta");
+    const chunks = [
+      {
+        id: "chatcmpl-test",
+        model: "gpt-test",
+        choices: [{
+          delta: {
+            tool_calls: [{
+              index: 0,
+              id: "call_read",
+              function: {
+                name: "Read",
+                arguments: JSON.stringify({
+                  file_path: "/tmp/example.txt",
+                  offset: 0,
+                  limit: 120,
+                  pages: ""
+                })
+              }
+            }]
+          }
+        }]
+      },
+      { choices: [{ delta: {}, finish_reason: "tool_calls" }] }
+    ];
+    const events = chunks.flatMap(chunk => openaiToClaudeResponse(chunk, state) || []);
+    const inputDelta = events.find(event => event.delta?.type === "input_json_delta");
 
     expect(inputDelta).toBeDefined();
     expect(JSON.parse(inputDelta.delta.partial_json)).toEqual({
@@ -202,5 +204,6 @@ describe("openaiToClaudeResponse", () => {
       offset: 0,
       limit: 120
     });
+    expect(events.at(-1)).toEqual({ type: "message_stop" });
   });
 });

@@ -70,9 +70,12 @@ function insert(db, table, values) {
 function update(db, table, key, id, values) {
   db.run(`UPDATE ${table} SET ${Object.keys(values).map(c => `${c} = ?`).join(",")} WHERE ${key} = ? AND ${table === "teleProxyRequests" ? "completed_at" : "ended_at"} IS NULL`, [...Object.values(values), id]);
 }
-function tariff(db, provider, model, contract, time, basis) {
-  const row = db.get(`SELECT * FROM teleProxyTariffs WHERE provider = ? AND model = ? AND contract_id = ? AND basis = ? AND effective_from <= ? AND (effective_to IS NULL OR effective_to > ?) AND created_at <= ? ORDER BY effective_from DESC LIMIT 1`, [provider, model, contract, basis, time, time, time]);
-  return row ? { ...row, data: JSON.parse(row.snapshot) } : null;
+/** Both price bases in one statement; the unique (provider, model, contract, effective_from, basis) key yields one row per basis. */
+function tariffs(db, provider, model, contract, time) {
+  const rows = db.all(`SELECT * FROM teleProxyTariffs t WHERE t.provider = ? AND t.model = ? AND t.contract_id = ? AND t.basis IN ('metered','reference') AND t.created_at <= ? AND t.effective_from = (SELECT MAX(x.effective_from) FROM teleProxyTariffs x WHERE x.provider = t.provider AND x.model = t.model AND x.contract_id = t.contract_id AND x.basis = t.basis AND x.effective_from <= ? AND (x.effective_to IS NULL OR x.effective_to > ?) AND x.created_at <= ?)`, [provider, model, contract, time, time, time, time]);
+  const found = {};
+  for (const row of rows) found[row.basis] ??= { ...row, data: JSON.parse(row.snapshot) };
+  return { price: found.metered ?? null, reference: found.reference ?? null };
 }
 
 export async function startRequest(fields = {}) {
@@ -111,8 +114,7 @@ export async function startAttempt(requestId, fields = {}) {
     if (!request || request.completed_at) throw new Error("Ledger request is missing or terminal");
     const contract = request.contract_id;
     const started = now(), provider = text(fields.provider), model = text(fields.requestedModel);
-    const price = tariff(db, provider, model, contract, started, "metered");
-    const reference = tariff(db, provider, model, contract, started, "reference");
+    const { price, reference } = tariffs(db, provider, model, contract, started);
     const sequence = db.get("SELECT COALESCE(MAX(sequence),0)+1 AS n FROM teleProxyAttempts WHERE request_id = ?", [requestId]).n;
     const secret = process.env.TELE_PROXY_PSEUDONYM_SECRET;
     const connection = secret && text(fields.connectionId) ? createHmac("sha256", secret).update(fields.connectionId).digest("hex").slice(0, 32) : null;
@@ -165,8 +167,9 @@ export async function finishAttempt(attemptId, fields = {}) {
     if (fields.usageComplete === false) usage.usageSource = "unknown";
     const responseModel = text(fields.responseModel), model = responseModel || attempt.requested_model;
     const byId = id => { const row = id ? db.get("SELECT * FROM teleProxyTariffs WHERE id = ?", [id]) : null; return row ? { ...row, data: JSON.parse(row.snapshot) } : null; };
-    const price = model === attempt.requested_model ? byId(attempt.price_snapshot_id) : tariff(db, attempt.provider, model, attempt.contract_id, attempt.started_at, "metered");
-    const reference = model === attempt.requested_model ? byId(attempt.reference_price_snapshot_id) : tariff(db, attempt.provider, model, attempt.contract_id, attempt.started_at, "reference");
+    const repriced = model === attempt.requested_model ? null : tariffs(db, attempt.provider, model, attempt.contract_id, attempt.started_at);
+    const price = repriced ? repriced.price : byId(attempt.price_snapshot_id);
+    const reference = repriced ? repriced.reference : byId(attempt.reference_price_snapshot_id);
     const metered = estimateMicros(usage, price?.data);
     const referenceValue = estimateMicros(usage, reference?.data);
     const reportedCurrency = /^[A-Z]{3}$/.test(fields.currency || "") ? fields.currency : null;

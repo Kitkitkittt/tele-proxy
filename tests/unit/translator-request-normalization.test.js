@@ -2,98 +2,20 @@ import { describe, it, expect } from "vitest";
 
 import { FORMATS } from "../../open-sse/translator/formats.js";
 import { translateRequest } from "../../open-sse/translator/index.js";
-import { claudeToOpenAIRequest } from "../../open-sse/translator/request/claude-to-openai.js";
-import { filterToOpenAIFormat } from "../../open-sse/translator/formats/openai.js";
 import { parseSSELine } from "../../open-sse/utils/streamHelpers.js";
 
 describe("request normalization", () => {
-  it("claudeToOpenAIRequest flattens text-only content arrays into string", () => {
+  it("translateRequest preserves text alongside image content", () => {
     const body = {
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "hi" },
-            { type: "text", text: "there" },
-          ],
-        },
-      ],
+      messages: [{ role: "user", content: [
+        { type: "text", text: "describe" },
+        { type: "image", source: { type: "base64", media_type: "image/png", data: "ZmFrZQ==" } },
+      ] }],
     };
-
-    const result = claudeToOpenAIRequest("gpt-oss:120b", body, true);
-    expect(result.messages[0].content).toBe("hi\nthere");
-  });
-
-  it("claudeToOpenAIRequest preserves multimodal arrays", () => {
-    const body = {
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "describe" },
-            {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: "image/png",
-                data: "ZmFrZQ==",
-              },
-            },
-          ],
-        },
-      ],
-    };
-
-    const result = claudeToOpenAIRequest("gpt-4o", body, true);
-    expect(Array.isArray(result.messages[0].content)).toBe(true);
-  });
-
-  it("filterToOpenAIFormat flattens text-only arrays to string", () => {
-    const body = {
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "a" },
-            { type: "text", text: "b" },
-          ],
-        },
-      ],
-    };
-
-    const result = filterToOpenAIFormat(JSON.parse(JSON.stringify(body)));
-    expect(result.messages[0].content).toBe("a\nb");
-  });
-
-  it("translateRequest keeps /v1/messages Claude->OpenAI text payloads string-safe", () => {
-    const body = {
-      model: "ollama/gpt-oss:120b",
-      system: [{ type: "text", text: "You are helpful." }],
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "hello" },
-            { type: "text", text: "world" },
-          ],
-        },
-      ],
-      stream: true,
-    };
-
-    const result = translateRequest(
-      FORMATS.CLAUDE,
-      FORMATS.OPENAI,
-      "gpt-oss:120b",
-      JSON.parse(JSON.stringify(body)),
-      true,
-      null,
-      "ollama",
-    );
-
-    const userMessage = result.messages.find((m) => m.role === "user");
-    expect(typeof userMessage.content).toBe("string");
-    expect(userMessage.content).toBe("hello\nworld");
+    const result = translateRequest(FORMATS.CLAUDE, FORMATS.OPENAI, "gpt-4o", body, true, null, "openai");
+    const user = result.messages.find(message => message.role === "user");
+    expect(user.content).toContainEqual({ type: "text", text: "describe" });
+    expect(user.content).toContainEqual(expect.objectContaining({ type: "image_url", image_url: expect.objectContaining({ url: "data:image/png;base64,ZmFrZQ==" }) }));
   });
 
   it("translateRequest strips unsupported Anthropic output_config for MiniMax Claude-compatible endpoints", () => {
@@ -171,7 +93,7 @@ describe("request normalization", () => {
       done: false,
     });
 
-    const parsed = parseSSELine(raw);
+    const parsed = parseSSELine(raw, FORMATS.OLLAMA);
     expect(parsed).toEqual({
       model: "gpt-oss:120b",
       message: { role: "assistant", content: "hello" },

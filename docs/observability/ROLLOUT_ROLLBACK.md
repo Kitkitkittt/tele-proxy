@@ -1,6 +1,6 @@
 # Isolated rollout and rollback
 
-**Historical scope:** sections 1–7 describe the original isolated canary; their commands do not authorize production changes. A later operator-approved native deployment at `tele-proxy.vnibb.xyz` completed on 2026-10-29; see section 8 and the dated [verification record](TEST_REPORT.md#2026-10-29-native-production-cutover). Docker monitoring/Langfuse backends are not certified deployed by that gateway cutover.
+**Historical scope:** sections 1–7 describe the original isolated canary; their commands do not authorize production changes. The operator-approved native deployment at `tele-proxy.vnibb.xyz` and later `da851bcf` redeploy are dated in [TEST_REPORT.md](TEST_REPORT.md#2026-10-29-redeploy-da851bcf-and-alternating-overhead-result); current release pointers are in section 8. The current user explicitly authorizes further implementation, commit and redeployment, not unrelated DNS/client/listener or backend changes. This documentation correction performs no runtime checks. Docker monitoring/Langfuse backends are not certified deployed by the gateway cutovers.
 
 ## 1. Prepare without starting anything
 
@@ -62,7 +62,7 @@ trap - EXIT
 
 The default order remains off then on. Use `--benchmark-order=on-off` to reverse it. Each timed mode has a fresh server and separate temporary state, seeded for that mode immediately before the same six warmups and indexed sample workload. The enabled seed additionally configures policies, attribution and tariffs; those differences are part of the measured enabled configuration. Both timed modes run before the separately seeded acceptance, outage and restart exercises. JSON `benchmark.order` records the actual order; `additionalP95EstimateMs` remains enabled minus baseline, regardless of order.
 
-After the isolated production artifact is built, record five matched pairs at each concurrency, alternating the first mode across pairs. Keep all results, including failures; do not cherry-pick or compare different artifacts/hardware:
+After the isolated production artifact is built, record five matched off/on runs at each concurrency, alternating the first mode across runs: **10 runs total, five per concurrency**, each containing both modes. Keep all results, including failures; do not cherry-pick or compare different artifacts/hardware. The recorded `da851bcf` gate passed only 3 of 10 runs and did not establish stable performance:
 
 ```sh
 results=$(mktemp -d /tmp/tele-proxy-benchmark.XXXXXX)
@@ -183,17 +183,19 @@ Immediate safe rollback: disable `TELE_PROXY_ENABLED`, restart the isolated cana
 
 ## 8. Native systemd deployment (2026-10-29)
 
-Verified dashboard: **https://tele-proxy.vnibb.xyz**. Client base: **https://tele-proxy.vnibb.xyz/v1**. Existing `9router.vnibb.xyz` clients continue to the same gateway without configuration changes. Both public hosts explicitly block `/api/metrics`; the local endpoint still requires its separate bearer token.
+Public dashboard: **https://tele-proxy.vnibb.xyz**. Client base: **https://tele-proxy.vnibb.xyz/v1**. Browser/UI verification belongs to the original cutover record; no dashboard HTTP 200 was observed for the later `da851bcf` redeploy. Existing `9router.vnibb.xyz` clients continued to the same gateway without configuration changes. Both public hosts were recorded blocking `/api/metrics`; the local endpoint requires its separate bearer token. These are dated observations, not new probes.
 
-Native production paths on the deployment workstation:
+Latest recorded native production paths on the deployment workstation (not re-inspected by this correction):
 
 | Purpose | Private/local path |
 |---|---|
-| Frozen current artifact | `~/.local/share/tele-proxy/current` → `releases/785eeb261d68-20261028T111741Z` |
+| Frozen current artifact | `~/.local/share/tele-proxy/current` → `releases/da851bcf-20261029T082307Z`; source `da851bcfb6ccad7ee80f2dd8d5e50badfea9686b` |
 | Current database | `~/.local/share/tele-proxy/state/db/data.sqlite` |
 | Secret environment | `~/.config/tele-proxy/production.env` (0600; never print/copy into git) |
-| Final cold snapshot and checksums | `~/.local/share/tele-proxy/backups/20261029T024947Z` |
-| Frozen previous binary | `~/.local/share/tele-proxy/rollback/9router-0.5.112/app/custom-server.js` |
+| Latest pre-redeploy snapshot and checksums | `~/.local/share/tele-proxy/backups/pre-da851bcf-20261029T082208Z`: online SQLite `VACUUM INTO`, integrity/checksums verified; only SQLite/auth/JWT/machine copied, **not a cold or full-state backup** |
+| Historical initial-cutover cold snapshot | `~/.local/share/tele-proxy/backups/20261029T024947Z`; separate dated recovery point, not the redeploy backup |
+| Previous tele-proxy artifact | `~/.local/share/tele-proxy/releases/785eeb261d68-20261028T111741Z`; redeploy rollback was rehearsed in both directions and left on `da851bcf` |
+| Historical legacy fallback binary | `~/.local/share/tele-proxy/rollback/9router-0.5.112/app/custom-server.js` |
 | Current-state rollback profile | `/etc/systemd/system/9router.service.d/tele-proxy-state.conf` |
 
 Read-only operational checks:
@@ -212,6 +214,10 @@ The inherited dashboard still says `9Router 0.5.111` and may offer upstream `0.5
 
 ### Current-state rollback
 
+For the latest recorded redeploy, binary rollback means deliberately selecting the previous frozen tele-proxy release `785eeb261d68-20261028T111741Z` and restarting the sole gateway owner against the latest compatible state; the recorded rehearsal returned to `da851bcf-20261029T082307Z`. Drain requests and confirm binary/schema compatibility, state ownership and current credential custody before any approved switch. The partial online pre-redeploy backup is not an entire-state restore point. No rollback or health check was repeated for this documentation correction.
+
+The following legacy `0.5.112` service procedure is historical fallback guidance, not the immediate previous-release pointer for the `da851bcf` redeploy:
+
 The previous `0.5.112` binary was frozen and actually rehearsed against a disposable post-extension database with every provider inactive. It preserved core counts and authenticated combo reads. This proves the exercised schema/read path, not every provider's rollback behavior.
 
 If an operator approves rollback, first drain active requests. The following commands **stop tele-proxy** and resume the frozen old binary against the **latest migrated state**, including rotated OAuth credentials:
@@ -225,4 +231,4 @@ curl --fail --silent --show-error http://127.0.0.1:20128/api/auth/status
 
 The installed 9router drop-in pins the frozen wrapper, loopback port 20128 and current state; it bypasses the upstream CLI's update/port-killing behavior. Verify public auth and real routing after any rollback. Do not run old and new gateways together. Do not restore the pre-cutover SQLite snapshot over fresher refresh tokens or delete additive ledger/policy tables. Keep a new consistent current-state backup before a deliberately approved incompatible restore; archive post-snapshot ledger evidence separately.
 
-To return to the qualified tele-proxy release, drain/stop 9router first, then enable/start tele-proxy. Keep the same current state after compatibility review. Neither direction requires changing client keys/base URLs or deleting DNS. Revert only the explicitly added hostname/metrics rules if ingress removal is separately requested; preserve unrelated tunnel entries and the old production hostname. Do not expose telemetry/admin backends as a recovery shortcut.
+To return from the legacy fallback to the recorded tele-proxy release, drain/stop 9router first, then enable/start tele-proxy with `current` deliberately pointing to the selected frozen release. Keep the same current state after compatibility review. Neither direction requires changing client keys/base URLs or deleting DNS. Revert only the explicitly added hostname/metrics rules if ingress removal is separately requested; preserve unrelated tunnel entries and the old production hostname. Do not expose telemetry/admin backends as a recovery shortcut.

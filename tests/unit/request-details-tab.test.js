@@ -134,9 +134,10 @@ describe("backupDbLite — excludes requestDetails, keeps critical data", () => 
     const dest = backupDbLite(adapter, backupDir);
     expect(fs.existsSync(dest)).toBe(true);
 
-    // Open backup and assert requestDetails is empty, settings present
-    const Database = (await import("better-sqlite3")).default;
-    const bak = new Database(dest);
+    // Inspect with the built-in driver: better-sqlite3 is an optional native dep
+    // that is not installed on every supported runtime.
+    const { DatabaseSync } = await import("node:sqlite");
+    const bak = new DatabaseSync(dest, { readOnly: true });
     try {
       // requestDetails is fully excluded — table must not exist in the backup
       const rdTable = bak.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='requestDetails'").get();

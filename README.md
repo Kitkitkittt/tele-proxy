@@ -14,8 +14,10 @@ A small, feature-flagged fork of [9Router](https://github.com/decolua/9router) f
 
 The [verification report](docs/observability/TEST_REPORT.md) records synthetic ingress, policy, accounting, browser, and native monitoring evidence. It is not a production-readiness claim. Known limits:
 
-- **Performance target is not met.** The original standalone canary measured **15.07 ms** additional p95; the first deployment rerun measured **5.12 ms** for one sample. The later record-every-run alternating gate on the current artifact, five matched pairs at concurrency 1 and 2 with order reversed each pair, passed `<10 ms` in only **3 of 10** runs (deltas −14.3 to +21.7 ms) with all 25 behavior cases passing. Per-run misses are failures; no median-pass rule exists. Durability was not weakened, but a passing sample or a median is not an established performance guarantee.
-- Current frozen source is `da851bcfa0a4e5c4b0e4c0aa7e3b0b3ae5c0f2d0`, released as `da851bcf-20261029T082307Z`: zero new test failures versus baseline `785eeb2`, deployment and rollback rehearsed, health/models/dashboard verified. Functional qualification passed; performance qualification did not.
+- **Performance target is not met.** The original standalone canary measured **15.07 ms** additional p95; the first deployment rerun measured **5.12 ms** for one sample. The later record-every-run alternating gate on the latest recorded deployed artifact, **10 runs total, five per concurrency** at concurrency 1 and 2 with order reversed each run, passed `<10 ms` in only **3 of 10** runs (deltas −14.3 to +21.7 ms) with all 25 behavior cases passing. Per-run misses are failures; no median-pass rule exists. Durability was not weakened, but a passing sample or a median is not an established performance guarantee.
+- Latest recorded deployed source is `da851bcfb6ccad7ee80f2dd8d5e50badfea9686b`, released as `da851bcf-20261029T082307Z`. Deployment and rollback, health and authenticated models reads were recorded; dashboard HTTP 200 was not observed for that redeploy. The prior full suite retained 35 failed assertions plus two collection failures, so neither full-suite success nor complete functional qualification is claimed.
+- The latest isolated candidate also remains unqualified: all 25 ingress behavior cases passed in each of 10 alternating runs, but only **4 of 10** met `<10 ms` (additional p95 −0.02 to +31.96 ms). Browser save/rollback-to-wire and inference-linked diagnostic isolation/expiry passed on that candidate. Production remains on `da851bcf`; see the separate [candidate record](docs/observability/TEST_REPORT.md#2026-10-29-hot-path-and-offline-suite-candidate).
+- Current default offline suite: **4,610 passed, zero failures or collection errors, 52 skipped/pending and one todo**. Live-provider files, missing cloud-worker/ffmpeg prerequisites and opted-out integration cases are not qualified by that result; obsolete source-text/shape tests and the dead lowdb benchmark were removed, not counted as passes.
 - Native x64 runtime, private SQLite restore, preserved authentication and previous-binary rollback were exercised. Full Docker Compose operation, real Langfuse ingestion/UI, backend-volume restore and supported full trace retention remain separate gates.
 - Langfuse Community Edition raw S3-event expiry is not complete trace-row retention. Capacity and supported retention must be resolved before enabling its profile.
 - Gemini/Muse browser accounting and hidden library retries remain explicitly incomplete. Required policies reject transports without a trusted instruction channel rather than silently claiming success.
@@ -94,15 +96,16 @@ npm --prefix tests test -- unit/combo-policy-native.test.js unit/combo-policy-st
   unit/combo-policy-api.test.js unit/request-ledger.test.js unit/request-ledger-durability.test.js \
   unit/dispatch-physical-retries.test.js unit/gateway-telemetry.test.js unit/dashboard-guard.test.js \
   --maxWorkers=1
-# Full discovery includes inherited failures and live-provider suites; not the default safe gate:
-# npm --prefix tests test -- --maxWorkers=1
+# Full offline discovery: live/credential suites require explicit opt-in.
+# Cloud worker cases skip when cloud/ is absent; deterministic failures still fail.
+npm --prefix tests test -- --maxWorkers=1
 # After a successful standalone build, owns fresh temporary state and loopback ports 20280/20281:
 node scripts/tele-proxy-canary.mjs --runtime=production --samples=40 --concurrency=2
 # Offline monitoring bootstrap assertions; no Docker or inference:
 python3 ops/observability/selfcheck.py
 ```
 
-The canary uses synthetic local providers, starts its own servers, then removes its temporary state; never attach it to production. It exits nonzero on failed behavior or the overhead target miss. Keep its ports free. The [test report](docs/observability/TEST_REPORT.md) contains exercised commands, exact outcomes and limitations. A raw full-suite failure count is not a release baseline; inherited/live-dependent suites require separate triage.
+The canary uses synthetic local providers, starts its own servers, then removes its temporary state; never attach it to production. It exits nonzero on failed behavior or the overhead target miss. Keep its ports free. The [test report](docs/observability/TEST_REPORT.md) contains exercised commands, exact outcomes and limitations. No inherited-failure count is an acceptance threshold; deterministic failures require current evidence.
 
 ## Operations and handoff
 
@@ -119,7 +122,7 @@ The canary uses synthetic local providers, starts its own servers, then removes 
 | [Operational runbooks](ops/observability/runbooks.md) | Alerts, exporter failures and storage pressure |
 | [Langfuse stack](ops/observability/langfuse/README.md) | Pinned backend, retention/capacity limits and ingestion checks |
 
-Older documents retain their original canary-only authorization and old target as historical context. The [improvement plan](docs/observability/IMPROVEMENT_PLAN.md) identifies the current target and controlled migration boundary; it does not retroactively mark older gates passed. Public ingress must expose only the intended gateway surface, not metrics, OTLP, databases, Grafana or Langfuse admin ports.
+Older documents retain their original canary-only authorization and old target as historical context. The current user explicitly authorizes further implementation, commit and redeployment; historical planning-only restrictions are not current authority. The [improvement plan](docs/observability/IMPROVEMENT_PLAN.md) identifies the current target and controlled migration boundary; it does not retroactively mark older gates passed. Public ingress must expose only the intended gateway surface, not metrics, OTLP, databases, Grafana or Langfuse admin ports.
 
 Production runs a frozen standalone release, not the globally installed upstream CLI. The inherited dashboard still displays `9Router`/`0.5.111` and an upstream update prompt: **do not use “Update now” or `npm i -g 9router` to upgrade tele-proxy**. Qualify a new native artifact, then deliberately change the release symlink. See the [native operations/rollback procedure](docs/observability/ROLLOUT_ROLLBACK.md#8-native-systemd-deployment-2026-10-29).
 

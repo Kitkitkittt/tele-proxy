@@ -1,52 +1,23 @@
-# 9Router Embeddings Tests
+# Tests
 
-Unit tests for the `/v1/embeddings` endpoint implementation.
+The tests are an independent Vitest package. Install root dependencies first, then install the test package dependencies:
 
-## Setup
-
-Install test dependencies from the `tests/` directory:
-
-```bash
-cd tests/ && npm install
+```sh
+npm install
+npm --prefix tests install
+npm --prefix tests test -- --maxWorkers=1
 ```
 
-## Running Tests
+Default discovery includes `**/*.test.js`, excluding `node_modules`, `.claude`, and `dist`; `.test.cjs` files are not discovered. `*.real.test.js` and `*.live.test.js` are excluded from the default run and only added back with `RUN_REAL=1`. Run with isolated temporary application state and no real provider credentials.
 
-From the `tests/` directory:
+`RUN_REAL=1` also re-includes and runs those live files, which can use real credentials and make network calls. `RUN_E2E=1` enables the local-proxy E2E tests, which require a running proxy and appropriate credentials. `AG_CACHE_TEST=1` enables the Antigravity cache test and reads local account state. Consult each test for its prerequisites before opting in.
 
-```bash
-npm test
+For example, from the repository root:
+
+```sh
+RUN_REAL=1 npx vitest run --config tests/vitest.config.js tests/unit/mimo-free.live.test.js
 ```
 
-Or run vitest directly with npx:
+`unit/embeddingsCore.test.js` exercises the local embeddings handler. `unit/embeddings.cloud.test.js` tests a separate cloud worker absent from this repository; its cases are explicitly skipped when the worker is absent and are not local coverage. Run them only in a checkout containing the worker and its dependencies.
 
-```bash
-npx vitest run --reporter=verbose --config ./vitest.config.js
-```
-
-## Test Files
-
-| File | What it tests |
-|------|--------------|
-| `unit/embeddingsCore.test.js` | `open-sse/handlers/embeddingsCore.js` — core logic: body builder, URL router, headers, handler flow |
-| `unit/embeddings.cloud.test.js` | `cloud/src/handlers/embeddings.js` — cloud worker handler: auth, validation, rate limits, CORS |
-
-## Coverage Summary (59 tests)
-
-### `embeddingsCore.test.js` (36 tests)
-- `buildEmbeddingsBody`: single string, array, encoding_format, default float
-- `buildEmbeddingsUrl`: openai, openrouter, openai-compatible-*, unsupported providers
-- `buildEmbeddingsHeaders`: per-provider header sets, fallback to accessToken
-- `handleEmbeddingsCore` input validation: missing, wrong type, null, empty
-- `handleEmbeddingsCore` success: response format, CORS, Content-Type, callbacks
-- `handleEmbeddingsCore` errors: 400/429/500, network error, invalid JSON
-- `handleEmbeddingsCore` token refresh: 401 retry, graceful fallback
-
-### `embeddings.cloud.test.js` (23 tests)
-- CORS OPTIONS: 200 response, empty body, correct headers
-- Authentication: missing key, bad format, old-format key, wrong key value, valid key
-- Body validation: invalid JSON, missing model, missing input, bad model
-- Happy path: single string, array, correct delegation, CORS header, machineId override
-- Rate limiting: all accounts rate-limited → 503 + Retry-After, no credentials → 400
-- Error propagation: non-fallback errors passed through, 429 exhausts accounts
-- machineId override: validates key, rejects wrong key
+The SQLite-versus-lowdb benchmark was removed with the obsolete lowdb dependency. The JSON files and `known-fails.txt` in `__baseline__/` are historical triage artifacts, not a current full-suite result or an allowance for failures. Investigate all current assertion and collection failures rather than accepting an inherited count.

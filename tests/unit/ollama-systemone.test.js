@@ -1,7 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import REGISTRY from "../../open-sse/providers/registry/index.js";
 import { PROVIDER_MEDIA } from "../../open-sse/providers/index.js";
 import { buildSystemoneUrl, handleSystemoneCore } from "../../open-sse/handlers/systemoneCore.js";
+
+const fetchMock = vi.hoisted(() => vi.fn());
+vi.mock("../../open-sse/utils/proxyFetch.js", () => ({ proxyAwareFetch: fetchMock }));
 
 const localCfg = PROVIDER_MEDIA["ollama-local"]?.systemoneConfig;
 
@@ -42,11 +45,9 @@ describe("Ollama System One providers", () => {
 });
 
 describe("handleSystemoneCore request", () => {
-  afterEach(() => vi.unstubAllGlobals());
-
+  beforeEach(() => fetchMock.mockReset());
   async function call(provider, model, credentials) {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
     const result = await handleSystemoneCore({
       body: { state: "s", questions: { q: { type: "noul", instructions: "i" } } },
       modelInfo: { provider, model },

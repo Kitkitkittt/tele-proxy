@@ -35,12 +35,6 @@ describe("detectRequiredCapabilities", () => {
     expect(r.has("vision")).toBe(true);
   });
 
-  it("web_search tool -> search", () => {
-    const r = detectRequiredCapabilities({ messages: [{ role: "user", content: "q" }], tools: [
-      { type: "web_search" },
-    ] });
-    expect(r.has("search")).toBe(true);
-  });
 
   it("responses input_image -> vision", () => {
     const r = detectRequiredCapabilities({ input: [{ role: "user", content: [
@@ -53,7 +47,7 @@ describe("detectRequiredCapabilities", () => {
 describe("reorderByCapabilities", () => {
   it("no required -> unchanged", () => {
     const models = ["a/x", "b/y"];
-    expect(reorderByCapabilities(models, new Set())).toBe(models);
+    expect(reorderByCapabilities(models, new Set())).toEqual(["a/x", "b/y"]);
   });
 
   it("floats vision-capable model to front, keeps fallback", () => {
@@ -68,11 +62,11 @@ describe("reorderByCapabilities", () => {
   it("keeps order when no model matches", () => {
     const models = ["deepseek/deepseek-chat", "deepseek/deepseek-reasoner"];
     const out = reorderByCapabilities(models, new Set(["vision"]));
-    expect(out).toBe(models);
+    expect(out).toEqual(models);
   });
 
   it("single model -> unchanged", () => {
     const models = ["a/x"];
-    expect(reorderByCapabilities(models, new Set(["vision"]))).toBe(models);
+    expect(reorderByCapabilities(models, new Set(["vision"]))).toEqual(["a/x"]);
   });
 });

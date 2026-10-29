@@ -3,6 +3,13 @@ import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
 const mocks = vi.hoisted(() => ({ update: vi.fn(), latest: vi.fn(), fetch: vi.fn(), refresh: vi.fn(), httpsRequest: vi.fn() }));
 vi.mock("node:https", () => ({ default: { request: mocks.httpsRequest } }));
+// This case owns the persisted-refresh boundary, not audio encoding; conversion is
+// covered when a real encoder is available. Keeping the stub here means refresh
+// coverage runs on hosts without ffmpeg.
+vi.mock("open-sse/handlers/codexSttAudio.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  convertAudio: async () => new Blob([Buffer.alloc(44)], { type: "audio/wav" }),
+}));
 const credentials = {
   connectionId: "offline-connection", authType: "oauth", accessToken: "offline-old-token", refreshToken: "offline-refresh",
   expiresAt: "2000-01-01T00:00:00.000Z", providerSpecificData: { workspaceId: "workspace", customMetadata: "preserve-me" },

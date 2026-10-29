@@ -50,8 +50,9 @@ export async function getPricing() {
 
 export async function getPricingForModel(provider, model) {
   if (!model) return null;
-  const userPricing = await getUserPricing();
-  if (provider && userPricing[provider]?.[model]) return userPricing[provider][model];
+  // Resolve only this provider's overrides; do not scan every pricing entry per request.
+  const userPricing = provider ? await pricingKv.get(provider) : null;
+  if (userPricing?.[model]) return userPricing[model];
   const { getPricingForModel: resolveConst } = await import("open-sse/providers/pricing.js");
   return resolveConst(provider, model);
 }

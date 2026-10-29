@@ -64,10 +64,12 @@ export async function resolveGatewayTarget(body, target) {
   return parsed.cleanModel;
 }
 
+const clientFamilies = ["codex", "opencode", "claude", "omp", "pi"].map(family =>
+  [family, new RegExp(`(?:^|[ /;-])${family}(?:[ /;.-]|$)`)]);
 function clientFamily(request) {
   const agent = request.headers.get("user-agent")?.toLowerCase() || "";
-  for (const family of ["codex", "opencode", "claude", "omp", "pi"]) {
-    if (new RegExp(`(?:^|[ /;-])${family}(?:[ /;.-]|$)`).test(agent)) return family;
+  for (const [family, pattern] of clientFamilies) {
+    if (pattern.test(agent)) return family;
   }
   return "unknown";
 }
@@ -178,14 +180,15 @@ export async function withGatewayRequest({ request, body, target, requestedAlias
   try { policy = combo ? await snapshotComboPolicy(combo.name) : null; }
   catch { invalidPolicy = true; }
   const identity = authenticatedKey ? await getApiKeyByKey(authenticatedKey) : null;
+  const family = clientFamily(request);
   const span = safeTelemetry("startRequest", {
-    combo: combo?.name || "direct", requestedAlias, clientFamily: clientFamily(request),
+    combo: combo?.name || "direct", requestedAlias, clientFamily: family,
     traceparent: request.headers.get("traceparent"), policyId: policy?.policyId,
     policyVersion: policy?.version, policyHash: policy?.hash,
   });
   const row = await persist(() => ledger.startRequest({
     traceId: span?.traceId, authenticatedKeyId: identity?.isActive ? identity.id : null,
-    clientFamily: clientFamily(request), requestedAlias, resolvedCombo: combo?.name,
+    clientFamily: family, requestedAlias, resolvedCombo: combo?.name,
     reasoningEffort: extractThinking(body)?.level || null,
     policyId: policy?.policyId, policyVersion: policy?.version, policyHash: policy?.hash,
     policyAppliedStatus: invalidPolicy ? "failed" : policyActive(policy) ? "pending" : "off",

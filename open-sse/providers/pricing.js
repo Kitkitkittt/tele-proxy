@@ -397,12 +397,19 @@ export const PATTERN_PRICING = [
   { pattern: "grok-*",          pricing: { input: 0.50,  output: 2.00,  cached: 0.25,  reasoning: 3.00,   cache_creation: 0.50  } },
 ];
 
+function compilePattern(pattern) {
+  return new RegExp("^" + pattern.split("*").map(s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$", "i");
+}
+
+// Finite reuse for static pricing patterns; arbitrary patterns are never cached.
+const pricingMatchers = new Map(PATTERN_PRICING.map(({ pattern }) => [pattern, compilePattern(pattern)]));
+
 /**
  * Match a model ID against a glob pattern (* = wildcard). Case-insensitive:
  * registry ids mix casing (e.g. "MiniMax-M2.5" vs "minimax-m2.5").
  */
 export function matchPattern(pattern, model) {
-  const regex = new RegExp("^" + pattern.split("*").map(s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$", "i");
+  const regex = pricingMatchers.get(pattern) || compilePattern(pattern);
   return regex.test(model);
 }
 
@@ -435,7 +442,7 @@ export function getPricingForModel(provider, model) {
 
   // 4. Pattern match
   for (const { pattern, pricing } of PATTERN_PRICING) {
-    if (matchPattern(pattern, baseModel) || matchPattern(pattern, model)) {
+    if (matchPattern(pattern, baseModel) || (baseModel !== model && matchPattern(pattern, model))) {
       return pricing;
     }
   }

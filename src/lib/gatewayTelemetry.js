@@ -230,10 +230,10 @@ export function endAttempt(handle, fields = {}) {
   try {
     const combined = { ...handle.fields, ...fields };
     const state = outcome(combined); const p = labelProvider(combined.provider);
-    handle.span?.setAttributes({ ...generationAttributes(combined), "gateway.outcome": state, "gateway.error_class": reason(combined) });
+    const attrs = generationAttributes(combined);
+    handle.span?.setAttributes({ ...attrs, "gateway.outcome": state, "gateway.error_class": reason(combined) });
     if (state === "error") handle.span?.setStatus({ code: SpanStatusCode.ERROR });
     inc("attempts_total", { provider: p, outcome: state, reason: state === "success" ? "unknown" : reason(combined) });
-    const attrs = generationAttributes(combined);
     const usage = attrs["langfuse.observation.usage_details"] ? JSON.parse(attrs["langfuse.observation.usage_details"]) : {};
     if (combined.usageComplete === false || !finite(usage.input) || !finite(usage.output)) inc("usage_unknown_total", { provider: p });
     for (const type of ["input", "output", "cached_input", "cache_write", "reasoning"]) if (finite(usage[type])) inc("tokens_total", { provider: p, type }, usage[type]);

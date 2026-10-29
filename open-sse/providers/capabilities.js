@@ -35,8 +35,11 @@
 // model spec); set `search` from vendor docs (Claude 4.x+, GPT-5.x/4o, Gemini
 // 2.0+, Grok, Perplexity). Verify with: curl -s https://models.dev/api.json
 
-import { matchPattern } from "./pricing.js";
 import { looksLikeVisionModel } from "./visionPatterns.js";
+
+function compilePattern(pattern) {
+  return new RegExp("^" + pattern.split("*").map(s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$", "i");
+}
 
 /**
  * Safe floor — every resolved result is merged over this so consumers
@@ -642,10 +645,18 @@ export const PATTERN_CAPABILITIES = [
   { pattern: "*hunyuan*",       caps: { reasoning: true, thinkingFormat: "hunyuan", contextWindow: 262144, maxOutput: 262144 } },
   { pattern: "hy3*",            caps: { reasoning: true, thinkingFormat: "hunyuan", contextWindow: 262144, maxOutput: 262144 } },
   { pattern: "*step-*",         caps: { reasoning: true, thinkingFormat: "step", contextWindow: 128000 } },
+
   { pattern: "*nemotron*",      caps: { reasoning: true, contextWindow: 128000 } },
   { pattern: "*ling-*",         caps: { reasoning: true, contextWindow: 128000 } },
 ];
 
+
+// Reuse only the finite, built-in capability patterns; arbitrary table additions stay uncached.
+const capabilityMatchers = new Map(PATTERN_CAPABILITIES.map(({ pattern }) => [pattern, compilePattern(pattern)]));
+
+function matchCapabilityPattern(pattern, model) {
+  return (capabilityMatchers.get(pattern) || compilePattern(pattern)).test(model);
+}
 /**
  * Aggregate capabilities for a combo from its constituent model IDs.
  * Each entry in comboModels is a fully-qualified "provider/model" string.
@@ -836,7 +847,7 @@ export function getCapabilitiesForModel(provider, model) {
 
   // 3. Pattern match (first match wins), refined by catalog + name heuristic
   for (const { pattern, caps } of PATTERN_CAPABILITIES) {
-    if (matchPattern(pattern, baseModel) || matchPattern(pattern, model)) {
+    if (matchCapabilityPattern(pattern, baseModel) || matchCapabilityPattern(pattern, model)) {
       return refine(caps, provider, model);
     }
   }
