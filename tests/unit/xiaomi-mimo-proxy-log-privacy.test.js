@@ -78,4 +78,14 @@ describe("feature-on mimo proxy diagnostics", () => {
     expect(seen.length).toBeGreaterThan(0);
     for (const cookie of seen) expect(cookie).not.toContain(SENTINEL);
   });
+
+  it("omits the takeover URL and query identifiers in feature mode", async () => {
+    vi.stubEnv("TELE_PROXY_ENABLED", "1");
+    const { runTakeover } = await import("../../src/lib/mimoLoginSession.js");
+    await runTakeover(sess(), `https://account.xiaomi.com/sts?sign=${SENTINEL}`, ORIGIN);
+    const text = logged.join("\n");
+    expect(text).toContain("sts-nav");
+    expect(text).not.toContain(SENTINEL);
+    expect(text).not.toContain("url=");
+  });
 });

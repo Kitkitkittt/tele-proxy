@@ -331,7 +331,7 @@ export async function ensureServiceSession(sess) {
     log(`me confirm http=${res.status}`);
     return res.status === 200;
   } catch (e) {
-    log(`exchange error: ${e?.message || e}`);
+    log(process.env.TELE_PROXY_ENABLED === "1" ? "exchange error" : `exchange error: ${e?.message || e}`);
     _exchangeBackoff.set(bkKey, Date.now());
     return false;
   }
@@ -447,7 +447,7 @@ async function socksFetch(url, init, proxyUrl) {
     _socksPromise = import("socks-proxy-agent")
       .then((m) => m.SocksProxyAgent || m.default?.SocksProxyAgent || m.default)
       .catch((e) => {
-        console.log(`${new Date().toISOString().slice(11,23)} [mimo-login] socks-proxy-agent unavailable:`, e?.message || e);
+        console.log(`${new Date().toISOString().slice(11,23)} [mimo-login] socks-proxy-agent unavailable`, process.env.TELE_PROXY_ENABLED === "1" ? "" : (e?.message || e));
         return null;
       });
   }
@@ -504,14 +504,14 @@ async function loginFetch(url, init, sessionProxyUrl = null) {
       _pafPromise = import("../../open-sse/utils/proxyFetch.js")
         .then((m) => m.proxyAwareFetch)
         .catch((e) => {
-          console.log(`${new Date().toISOString().slice(11,23)} [mimo-login] proxyAwareFetch unavailable (runtime?), direct only:`, e?.message || e);
+          console.log(`${new Date().toISOString().slice(11,23)} [mimo-login] proxyAwareFetch unavailable (runtime?), direct only`, process.env.TELE_PROXY_ENABLED === "1" ? "" : (e?.message || e));
           return null;
         });
     }
     const paf = await _pafPromise;
     if (paf) return await paf(url, init, proxyOptions);
   } catch (e) {
-    console.log(`${new Date().toISOString().slice(11,23)} [mimo-login] proxied fetch failed, falling back to direct:`, e?.message || e);
+    console.log(`${new Date().toISOString().slice(11,23)} [mimo-login] proxied fetch failed, falling back to direct`, process.env.TELE_PROXY_ENABLED === "1" ? "" : (e?.message || e));
   }
   return fetch(url, init);
 }
@@ -701,7 +701,8 @@ export async function runTakeover(sess, upstreamUrl, origin) {
     const names = [...sess.jar.keys()].map((k) => k.split("|")[0]).join(",");
     return `passToken=${id ? "Y" : "N"} jar=[${names.slice(0, 160)}]`;
   };
-  log(`sts-nav url=${upstreamUrl.slice(0, 160)} origin=${origin} | ${idSnap()}`);
+  if (process.env.TELE_PROXY_ENABLED === "1") log(`sts-nav | ${idSnap()}`);
+  else log(`sts-nav url=${upstreamUrl.slice(0, 160)} origin=${origin} | ${idSnap()}`);
   const id = readSessionIdentity(sess);
   // AUTHORIZATION COMPLETION = passToken captured (that IS the credential the
   // connection persists for the account route). The serviceToken exchange

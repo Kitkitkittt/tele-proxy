@@ -29,6 +29,7 @@
 - Suppress raw upstream error bodies/URLs and unrewritable local POST payloads from Xiaomi login proxy diagnostics in feature mode; authenticated synthetic POST/400 regressions cover both modes.
 - Key the 7d `lastUsed` overlay with the same `local-no-key|model|provider` composite the daily rollup writes, so feature-on no-key rows keep precise timestamps instead of date-only values.
 - Stop replaying the browser's origin cookies to `account.xiaomi.com`: the authorized proxy used a raw `Cookie` fallback when the server jar had no match, forwarding the dashboard `auth_token` and `9r_mimo_login` JWT to a third party. Upstream cookies now come only from the server-side jar.
+- Extend feature-mode Xiaomi log redaction to the takeover navigation URL (carries callback signature params) and to egress failure/exception detail; feature-off keeps each full diagnostic line.
 
 ## Deployment limits
 - Native systemd gateway deployed 2026-10-29 at `tele-proxy.vnibb.xyz`, preserving old-host clients and migrated authentication/combos/history under one OAuth owner. Latest recorded source `6e8a863af6f51986988a4e8c9db2c0a0faaddb2f`, release `6e8a863a-20261029T122006Z`, deployed under an explicit operator exception with the performance gate still open; previous `da851bcf-20261029T082307Z` remains the rollback target. Dated acceptance and current-state rollback evidence are in `docs/observability/TEST_REPORT.md` and `ROLLOUT_ROLLBACK.md`. No client configuration changed.
