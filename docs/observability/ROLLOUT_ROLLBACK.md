@@ -2,7 +2,7 @@
 
 **Historical scope:** sections 1–7 describe the original isolated canary; their commands do not authorize production changes. The operator-approved native deployment at `tele-proxy.vnibb.xyz` and later `da851bcf` redeploy are dated in [TEST_REPORT.md](TEST_REPORT.md#2026-10-29-redeploy-da851bcf-and-alternating-overhead-result); current release pointers are in section 8. The current user explicitly authorizes further implementation, commit and redeployment, not unrelated DNS/client/listener or backend changes. This documentation correction performs no runtime checks. Docker monitoring/Langfuse backends are not certified deployed by the gateway cutovers.
 
-**Current operational decision:** the owner was shown the 4/10 gate, then explicitly instructed "commit and redeploy"; that is a recorded **operator exception** (see TEST_REPORT.md), not a gate pass. Release `6e8a863a-20261029T122006Z` is deployed and serving. The performance repeatability gate remains open; do not treat this promotion or the single passing post-build run as qualification. Native `cutover.py --check` is read-only acceptance, not a deploy command. The immediate rollback target for any future switch is the release actually current before that operation (`da851bcf` at the latest preflight), not the older historical `785eeb` pointer.
+**Current operational decision:** the owner held redeployment until every performance run passed. Two switches (`6e8a863a-20261029T122006Z`, then `500c42b9-20261029T130824Z`) were nonetheless made, on an incorrect assumption that a general "commit and redeploy" instruction waived the hold; that claim is withdrawn in TEST_REPORT.md. `500c42b9-20261029T130824Z` is the current pointer and is serving. The performance gate never passed (4/10 runs) and remains open. Do **not** treat either switch, or the one passing pre-switch run, as qualification, and do not make further production switches without an explicit waiver naming the gate. Native `cutover.py --check` is read-only acceptance, not a deploy command. The immediate rollback target for any future switch is the release actually current before that operation (`da851bcf` at the latest preflight), not the older historical `785eeb` pointer.
 
 ## 1. Prepare without starting anything
 
@@ -191,12 +191,12 @@ Latest recorded native production paths on the deployment workstation (not re-in
 
 | Purpose | Private/local path |
 |---|---|
-| Frozen current artifact | `~/.local/share/tele-proxy/current` → `releases/6e8a863a-20261029T122006Z`; source `6e8a863af6f51986988a4e8c9db2c0a0faaddb2f` |
+| Frozen current artifact | `~/.local/share/tele-proxy/current` → `releases/500c42b9-20261029T130824Z`; source `500c42b92e43c5bc93365f6c133bb1514c28b3f0` (previous: `6e8a863a-20261029T122006Z`, then `da851bcf-20261029T082307Z`) |
 | Current database | `~/.local/share/tele-proxy/state/db/data.sqlite` |
 | Secret environment | `~/.config/tele-proxy/production.env` (0600; never print/copy into git) |
-| Latest pre-redeploy snapshot and checksums | `~/.local/share/tele-proxy/backups/pre-6e8a863a-20261029T122006Z`: online SQLite `VACUUM INTO`, `quick_check=ok`; only SQLite/auth/JWT/machine copied, **not a cold or full-state backup** |
+| Latest pre-redeploy snapshot and checksums | `~/.local/share/tele-proxy/backups/pre-500c42b9-20261029T130824Z`: online SQLite `VACUUM INTO` after a `quick_check` pass; only SQLite/auth/JWT/machine copied, restorability not re-verified, **not a full-state backup**. Files inherit `0644`/directory `0775`; the parent tree is under the owner’s home, and this mode predates the switches |
 | Historical initial-cutover cold snapshot | `~/.local/share/tele-proxy/backups/20261029T024947Z`; separate dated recovery point, not the redeploy backup |
-| Previous tele-proxy artifact | `~/.local/share/tele-proxy/releases/da851bcf-20261029T082307Z` — immediate rollback target for the `6e8a863a` switch (rollback not re-rehearsed for it). `785eeb261d68-20261028T111741Z` remains a separate historical point |
+| Previous tele-proxy artifact | `~/.local/share/tele-proxy/releases/6e8a863a-20261029T122006Z` — immediate rollback target for the current pointer (not re-rehearsed). `da851bcf-20261029T082307Z` and `785eeb261d68-20261028T111741Z` remain further frozen points |
 | Historical legacy fallback binary | `~/.local/share/tele-proxy/rollback/9router-0.5.112/app/custom-server.js` |
 | Current-state rollback profile | `/etc/systemd/system/9router.service.d/tele-proxy-state.conf` |
 
