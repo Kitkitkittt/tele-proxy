@@ -455,3 +455,19 @@ Unlike the earlier switches, this one follows a direct choice. The handoff liste
 
 It does not authorize changing durability settings, PRAGMAs, acknowledgment or accounting behaviour, client/DNS configuration, or starting monitoring/Langfuse backends.
 
+#### 2026-10-29 deploy of the security fixes (`a73c43a7`)
+
+Source `de03dfae83d393d5173f0462fe4dd22da66368e5` (release label `a73c43a7`; the only difference is this file's prose). 3,598 files, manifest `a15322ec63d6e52d21a6fada8b999b5de9c3b08efe821d5dc422b81d401eeac4`. Fresh feature-off build from a credential-free `HOME`; the running artifact was not built over. The frozen release was then byte-identical to the built tree apart from a runtime `route-cache/APP_PAGE` directory the canary created, so acceptance ran on the exact bytes deployed.
+
+Snapshot `backups/pre-a73c43a7-20261029T170006Z` used `sqlite3.Connection.backup()` rather than `VACUUM INTO`; `quick_check=ok` and 12 combos on the copy. Auth/JWT/machine/mitm files copied. **Not** a full-state backup — model catalogs were not included, so a restore would lose them.
+
+Pre-switch acceptance: **25/25 canary cases passed**, exit 0. This artifact's own timing gate **passed at +4.230 ms** (off 30.339, on 34.569 gateway p95). That is one run; the ten-run repeatability gate remains **open** and this deploy does not close it.
+
+Post-switch, on the new release: health 200 loopback and public; public `/api/metrics` 404; authenticated `/v1/models` 200 with 848 entries (7.6–7.8 s, cold); dashboard 307 → `/login`; `cutover.py --check` 303 connections / 9 nodes / 7 keys / 12 combos; `NRestarts=0`; no error-level journal entries.
+
+The SSRF fix was exercised live rather than only in unit tests. A hand-built unsigned `9r_mimo_login` cookie naming `169.254.169.254` as the egress proxy is now answered by the guard (`401` on an API path, `404` on a page path) and cleared with `Max-Age=0`; previously that cookie reached the forwarding branch. **Limit of this evidence:** production sets `requireLogin=true`, so the live probe confirms the cookie is rejected without a dashboard token — it cannot demonstrate the old `requireLogin=false` code path, which the unit regression covers instead.
+
+Observed during the same window: unauthenticated loopback `/v1/models` returns 200. This is the documented policy, not a regression — `isLocalRequest` (loopback Host **and** Origin) grants local access, and remote `/v1*` still requires an API key. Recorded because it looks like an auth hole at first glance.
+
+No rollback was rehearsed for this switch. `deployment.json` now records the authorization and the scope limits.
+
