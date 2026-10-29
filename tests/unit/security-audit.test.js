@@ -6,53 +6,6 @@ import { fileURLToPath } from "url";
 // Source paths are repo-relative; vitest runs from tests/, so resolve from the repo root.
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
-// ============================================================
-// AUDIT-002 (#1962): API key masking in usage stats
-// ============================================================
-describe("AUDIT-002: API key masking", () => {
-  it("source should contain maskApiKey function", () => {
-    const source = fs.readFileSync(
-      path.resolve(REPO_ROOT, "src/lib/db/repos/usageRepo.js"),
-      "utf-8"
-    );
-    expect(source).toContain("function maskApiKey");
-  });
-
-  it("getUsageHistory should use apiKeyMasked instead of apiKey", () => {
-    const source = fs.readFileSync(
-      path.resolve(REPO_ROOT, "src/lib/db/repos/usageRepo.js"),
-      "utf-8"
-    );
-    // The REST response should use apiKeyMasked
-    expect(source).toContain("apiKeyMasked: maskApiKey(r.apiKey)");
-    // The return mapping in getUsageHistory should not have raw apiKey
-    // (The internal ring buffer still uses apiKey: r.apiKey for internal state - that's fine)
-    const historyReturn = source.match(/return rows\.map\(\(r\)\s*=>\s*\(\{[\s\S]*?\}\)\);/);
-    expect(historyReturn).not.toBeNull();
-    expect(historyReturn[0]).toContain("apiKeyMasked");
-    expect(historyReturn[0]).not.toContain("apiKey: r.apiKey");
-  });
-
-  it("getUsageStats should use apiKeyMasked in byApiKey entries", () => {
-    const source = fs.readFileSync(
-      path.resolve(REPO_ROOT, "src/lib/db/repos/usageRepo.js"),
-      "utf-8"
-    );
-    // Both code paths (daily summary + 24h live) should use apiKeyMasked
-    const maskedCount = (source.match(/apiKeyMasked/g) || []).length;
-    expect(maskedCount).toBeGreaterThanOrEqual(4); // function def + 3 usage sites
-
-    // The byApiKey stats entries should use apiKeyMasked, not raw apiKey
-    // Check the daily summary path
-    const dailyPath = source.match(/stats\.byApiKey\[akKey\] = \{[^}]*apiKeyMasked[^}]*\}/);
-    expect(dailyPath).not.toBeNull();
-    // Check the 24h live path
-    const livePath = source.match(/stats\.byApiKey\[akKey\] = \{[^}]*apiKeyMasked[^}]*\}/g);
-    expect(livePath).not.toBeNull();
-    expect(livePath.length).toBeGreaterThanOrEqual(1);
-  });
-
-});
 
 // ============================================================
 // AUDIT-003 (#1961): Proxy URL validation

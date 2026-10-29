@@ -23,7 +23,8 @@
 - Preserve malformed cache/reasoning usage markers through observation so ledger pricing remains unknown; cover project diagnostic authorization and attribution with isolated regressions.
 - Suppress Cursor protobuf debug logs in feature mode, including decoded tool names, while retaining feature-off debugging.
 - Reuse compiled static pricing/capability globs, query only the requested provider's pricing overrides, and reuse generation attributes at settlement without changing pricing precedence, usage accounting or durability.
-- Repair stale offline-test transport boundaries, opt live-provider discovery in explicitly, skip absent cloud/ffmpeg prerequisites visibly, and remove the obsolete lowdb benchmark and source-text assertions.
+- Repair stale offline-test transport boundaries, opt live-provider discovery in explicitly, skip absent cloud/ffmpeg prerequisites visibly, and remove the obsolete lowdb benchmark. Correction: removing the raw-key source assertion left a real disclosure undetected; the previous green suite did not qualify that security boundary.
+- Replace raw legacy usage-stat bucket names with SHA-256 identifiers after aggregation, preserving colliding-mask key separation and precise daily timestamps. Behavioral 24h/7d serialization checks replace source-text masking checks; no database credentials are deleted and no release is promoted.
 
 ## Deployment limits
 - Native systemd gateway deployed 2026-10-29 at `tele-proxy.vnibb.xyz`, preserving old-host clients and migrated authentication/combos/history under one OAuth owner. Latest recorded source `da851bcfb6ccad7ee80f2dd8d5e50badfea9686b`, release `da851bcf-20261029T082307Z`; dated acceptance and current-state rollback evidence are in `docs/observability/TEST_REPORT.md` and `ROLLOUT_ROLLBACK.md`. No client configuration changed.

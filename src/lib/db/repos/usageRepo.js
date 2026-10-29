@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { EventEmitter } from "events";
 import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
@@ -679,6 +680,10 @@ export async function getUsageStats(period = "all") {
   }
 
   stats.totalRequests = Object.values(stats.byProvider).reduce((sum, p) => sum + (p.requests || 0), 0);
+  // Legacy rollups and timestamp overlays use raw keys internally; never expose those map keys.
+  stats.byApiKey = Object.fromEntries(Object.entries(stats.byApiKey).map(([bucket, usage]) => [
+    bucket === "local-no-key" ? bucket : createHash("sha256").update(bucket).digest("hex"), usage,
+  ]));
   return stats;
 }
 
