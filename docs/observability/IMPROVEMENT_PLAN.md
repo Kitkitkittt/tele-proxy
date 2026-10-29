@@ -1,6 +1,6 @@
 # tele-proxy improvement and cross-machine handoff plan
 
-Planning baseline: 2026-10-28; deployment status corrected 2026-10-30. Repository: `Kitkitkittt/tele-proxy`; development branch: `codex/1-tele-proxy`; review: [draft PR #13](https://github.com/Kitkitkittt/tele-proxy/pull/13). **Latest recorded native deployment: source `de03dfae83d393d5173f0462fe4dd22da66368e5`, release `a73c43a7-20261029T170132Z`**, made under an explicit owner authorization after the open gate was presented; see the [deploy record](TEST_REPORT.md#2026-10-29-deploy-of-the-security-fixes-a73c43a7). The performance gate remains open. Original cutover/browser observations remain dated evidence, not new checks. No Docker image deployment is implied.
+Planning baseline: 2026-10-28; deployment status corrected 2026-10-30. Repository: `Kitkitkittt/tele-proxy`; development branch: `codex/1-tele-proxy`; review: [draft PR #13](https://github.com/Kitkitkittt/tele-proxy/pull/13). **Latest recorded native deployment: source `8c22d9a33f24ecdb4c7c01e2561a2e85daa98702`, release `8c22d9a3-20261029T183114Z`**, made under explicit owner authorization after the open gate was presented; see the [deploy record](TEST_REPORT.md#2026-10-30-egress-log-fixes-and-close-out-deploy-8c22d9a3). The performance gate remains open. Original cutover/browser observations remain dated evidence, not new checks. No Docker image deployment is implied.
 
 ## Status as of 2026-10-30
 
@@ -17,7 +17,7 @@ The code-bearing tickets are implemented and evidenced. What remains is runtime 
 | #8 | Mapping proven synthetically only | **Blocked**: needs a running Langfuse stack and the Enterprise retention entitlement. |
 | #9 | Artifacts pinned, validated offline | **Blocked** on host capacity: 32 GiB free, 93% used, against a ≥10 GiB reserve + 20% free rule. |
 | #10 | Four dashboards and 15 rules exist | **Blocked** on the #9 stack for Loki/datasource proof; the missing-signal classification table is now written. |
-| #11 | 4,622 offline tests; 25/25 cases ×10 | **Blocked**: the `<10 ms` gate is 4/10 with no attributed cause; needs correlation instrumentation, then qualified storage. |
+| #11 | 4,626 offline tests; 25/25 cases ×10 | **Blocked**: the `<10 ms` gate is 4/10 with no attributed cause; needs correlation instrumentation, then qualified storage. |
 | #12 | Docs complete; native deploy recorded | **Blocked** on #8/#9 for the backend-volume restore drill; the consolidated per-plane status block is now written. |
 ## Current objective and authority
 

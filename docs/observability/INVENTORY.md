@@ -2,7 +2,7 @@
 
 Bounded read-only host snapshot, refreshed **2026-10-30 UTC**. Checkout, deployed release and resource observations are current as of this session; they are **not** a security audit, capacity qualification or release acceptance, and production traffic changes them immediately.
 
-**Current pins.** Checkout `2b914e2d71dadf6cfc8e758f10e60d4c2aef6b49` on `codex/1-tele-proxy`, clean. Upstream `upstream/master` still pinned at `3a978a631ad65529c06e48ce495092d5bba29f46` (9Router `0.5.111`); no fetch/rebase/upgrade. Deployed source `de03dfae83d393d5173f0462fe4dd22da66368e5`, release `a73c43a7-20261029T170132Z`, 3,598 files, manifest `a15322ec63d6e52d…`; see the [deploy record](TEST_REPORT.md#2026-10-29-deploy-of-the-security-fixes-a73c43a7). No Docker gateway image applies — this is a native systemd deployment.
+**Current pins.** Checkout `8c22d9a33f24ecdb4c7c01e2561a2e85daa98702` on `codex/1-tele-proxy`, clean. Upstream `upstream/master` still pinned at `3a978a631ad65529c06e48ce495092d5bba29f46` (9Router `0.5.111`); no fetch/rebase/upgrade. Deployed source `8c22d9a33f24ecdb4c7c01e2561a2e85daa98702`, release `8c22d9a3-20261029T183114Z`, 3,598 files, manifest `ba6abe472e3535ba…`; see the [deploy record](TEST_REPORT.md#2026-10-30-egress-log-fixes-and-close-out-deploy-8c22d9a3). No Docker gateway image applies — this is a native systemd deployment.
 
 ## 2026-10-30 refresh
 
@@ -11,7 +11,7 @@ Collected with `git rev-parse/status`, `systemctl show/is-active/list-units`, `r
 | Item | Observation | Boundary |
 |---|---|---|
 | Gateway service | `tele-proxy.service` active/running, `NRestarts=0`, memory 482,385,920 bytes, cumulative CPU 110,238,717,000 ns. | Snapshot, not peak or sustained load. |
-| Deployment | `current` → `releases/a73c43a7-20261029T170132Z`; metadata agrees with the recorded source and manifest. | Identity read from the symlink and deployment metadata; the artifact was **not** rehashed this session. |
+| Deployment | `current` → `releases/8c22d9a3-20261029T183114Z`; metadata agrees with the recorded source and manifest. | Identity read from the symlink and deployment metadata; the artifact was **not** rehashed this session. |
 | State DB | `db/data.sqlite` mode `0600`, 688,123,904 bytes; state dir 676 MiB. `quick_check=ok`. Read-only counts: 303 connections, 9 nodes, 7 keys, 12 combos, 1,357,997 usage rows. | Counts drift with live traffic. Integrity checked; restorability of any backup was not. |
 | Listeners | Only `127.0.0.1:20128` among gateway/monitoring candidate ports. 20129, 20280/20281, 3000, 3100, 4317/4318, 9090, 12345 unbound. | Port state is transient. Loopback remains deliberate; direct-LAN reach is not restored. |
 | Ingress | `cloudflared.service` active, `NRestarts=0`. Public and local resolution agree (2 A records each). | DNS agreement does not establish HTTPS, auth, browser UI or origin health; no probe run here. |
@@ -22,7 +22,7 @@ Collected with `git rev-parse/status`, `systemctl show/is-active/list-units`, `r
 | Clients | `pi 0.86.1`, `omp/18.13.3`, `codex-cli 0.159.2`, `opencode 1.18.35`, `claude 2.1.259`. | Versions do not establish which protocol each client currently sends. |
 | Legacy routers | `9router.service` and `omniroute.service` inactive. | Retirement already done; private recovery material is preserved, not re-verified. |
 
-Superseded statements earlier in this file: the `da851bcf`/`785eeb` deployment pins and the "hold redeployment" posture. The performance gate is still open — see the [verification report](TEST_REPORT.md) — but the deployed release is now `a73c43a7`.
+Superseded statements earlier in this file: the `da851bcf`/`785eeb` deployment pins and the "hold redeployment" posture. The performance gate is still open — see the [verification report](TEST_REPORT.md) — but the deployed release is now `8c22d9a3`.
 
 ## Historical inventory snapshot
 

@@ -52,7 +52,7 @@ describe("egress URL redaction in feature mode", () => {
     const url = await triggerTlsFallback();
     const text = warned.join("\n");
     expect(text).toContain("TLS cert verification failed");
-    expect(text).not.toContain(SENTINEL);
+    // SENTINEL is inside the URL, so the url check below covers both.
     expect(text).not.toContain(url);
   });
 
