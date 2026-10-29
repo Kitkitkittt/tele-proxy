@@ -1,6 +1,6 @@
 # Isolated rollout and rollback
 
-**Stop boundary:** loopback canary only. `proxy.vnibb.xyz` remains an intended name; no DNS, public ingress, live OAuth, metered inference or client configuration change is part of these commands. Commands below are operator procedures, not claimed executed results. Check [TEST_REPORT.md](TEST_REPORT.md) for actual evidence. Docker was inaccessible (permission denied) in the implementation environment; backends are **not deployed**.
+**Historical scope:** sections 1–7 describe the original isolated canary; their commands do not authorize production changes. A later operator-approved native deployment at `tele-proxy.vnibb.xyz` completed on 2026-10-29; see section 8 and the dated [verification record](TEST_REPORT.md#2026-10-29-native-production-cutover). Docker monitoring/Langfuse backends are not certified deployed by that gateway cutover.
 
 ## 1. Prepare without starting anything
 
@@ -137,3 +137,49 @@ Verify manifest checksums (script does), open the recovered gateway with the mat
 Promotion is a later authorized action after mock regression, native build, private backend validation, reconciled accounting, overhead measurement, secret scan, privacy fixture and restore rehearsal pass. Take a pre-promotion consistent state backup; pin feature commit/image and record previous routing/image/config. Preserve additive DB columns/tables. Confirm old binary ignores extension schema before claiming flag-only compatibility. No production routing commands are supplied to accidentally activate ingress.
 
 Immediate safe rollback: disable `TELE_PROXY_ENABLED`, restart the isolated canary with the same compatible image, stop exporters/backends if needed; preserve ledger and volumes. Do not remove new columns or recalculate old costs. For incompatible binary/schema rollback, stop/drain gateway, restore the **entire matching pre-change state** with its matching binary/image and secret set in an isolated rehearsal first; a flag cannot reverse migrations. Newer request/attempt evidence since the snapshot would be lost on replacement, so archive it privately before any approved restore. Production routing rollback, if ever promoted, returns the established ingress to the exact recorded old endpoint/image without changing clients or credentials. DNS/ingress/client/OAuth changes remain out of scope now.
+
+## 8. Native systemd deployment (2026-10-29)
+
+Verified dashboard: **https://tele-proxy.vnibb.xyz**. Client base: **https://tele-proxy.vnibb.xyz/v1**. Existing `9router.vnibb.xyz` clients continue to the same gateway without configuration changes. Both public hosts explicitly block `/api/metrics`; the local endpoint still requires its separate bearer token.
+
+Native production paths on the deployment workstation:
+
+| Purpose | Private/local path |
+|---|---|
+| Frozen current artifact | `~/.local/share/tele-proxy/current` → `releases/785eeb261d68-20261028T111741Z` |
+| Current database | `~/.local/share/tele-proxy/state/db/data.sqlite` |
+| Secret environment | `~/.config/tele-proxy/production.env` (0600; never print/copy into git) |
+| Final cold snapshot and checksums | `~/.local/share/tele-proxy/backups/20261029T024947Z` |
+| Frozen previous binary | `~/.local/share/tele-proxy/rollback/9router-0.5.112/app/custom-server.js` |
+| Current-state rollback profile | `/etc/systemd/system/9router.service.d/tele-proxy-state.conf` |
+
+Read-only operational checks:
+
+```sh
+systemctl show tele-proxy.service 9router.service omniroute.service --property=Id,ActiveState,MainPID,UnitFileState,NRestarts
+ss -ltnp 'sport = :20128'
+curl --fail --silent --show-error http://127.0.0.1:20128/api/auth/status
+```
+
+`auth/status=200` alone is not database/inference proof; inspect configured-password/login fields, native driver log, authenticated reads and production request outcomes. Do not publish raw journal output, provider responses, keys or cookies. `node:sqlite` was observed against the dedicated target, not `sql.js` fallback. Public `1010` with a non-browser client is not evidence of gateway failure; browser User-Agent and real Chromium succeeded. Public DNS/Chromium worked while this workstation's system resolver retained a negative cache.
+
+Systemd owns startup: tele-proxy enabled; old 9router/OmniRoute disabled. The old `@reboot` stop/update script was removed from cron and replaced by a token-free systemd delegator. Do not reintroduce it as an update/stop loop. Mutual service conflicts prevent simultaneous owners. The exposed connector token was rotated and old connector sessions evicted; credentials remain in `/etc/cloudflared/token`, never embedded in arguments/scripts. Starting/stopping a connector is separate from gateway restart.
+
+The inherited dashboard still says `9Router 0.5.111` and may offer upstream `0.5.112`. **Do not click Update now or run the upstream global CLI to upgrade this fork.** Its source/runtime is pinned by full commit and artifact manifest, not the inherited display version. Build/qualify a new native release with isolated synthetic state, then switch `current` deliberately; never build over the running artifact.
+
+### Current-state rollback
+
+The previous `0.5.112` binary was frozen and actually rehearsed against a disposable post-extension database with every provider inactive. It preserved core counts and authenticated combo reads. This proves the exercised schema/read path, not every provider's rollback behavior.
+
+If an operator approves rollback, first drain active requests. The following commands **stop tele-proxy** and resume the frozen old binary against the **latest migrated state**, including rotated OAuth credentials:
+
+```sh
+sudo systemctl disable --now tele-proxy.service
+sudo systemctl enable --now 9router.service
+systemctl show 9router.service tele-proxy.service --property=Id,ActiveState,MainPID,UnitFileState
+curl --fail --silent --show-error http://127.0.0.1:20128/api/auth/status
+```
+
+The installed 9router drop-in pins the frozen wrapper, loopback port 20128 and current state; it bypasses the upstream CLI's update/port-killing behavior. Verify public auth and real routing after any rollback. Do not run old and new gateways together. Do not restore the pre-cutover SQLite snapshot over fresher refresh tokens or delete additive ledger/policy tables. Keep a new consistent current-state backup before a deliberately approved incompatible restore; archive post-snapshot ledger evidence separately.
+
+To return to the qualified tele-proxy release, drain/stop 9router first, then enable/start tele-proxy. Keep the same current state after compatibility review. Neither direction requires changing client keys/base URLs or deleting DNS. Revert only the explicitly added hostname/metrics rules if ingress removal is separately requested; preserve unrelated tunnel entries and the old production hostname. Do not expose telemetry/admin backends as a recovery shortcut.

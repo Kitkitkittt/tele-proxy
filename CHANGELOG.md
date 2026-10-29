@@ -18,9 +18,12 @@
 - Suppress Cursor protobuf debug logs in feature mode, including decoded tool names, while retaining feature-off debugging.
 
 ## Deployment limits
-- No DNS, ingress, production state, OAuth ownership or client configuration cutover. Target hostname is `proxy.vnibb.xyz`.
+- Native systemd gateway deployed 2026-10-29 at `tele-proxy.vnibb.xyz`, preserving old-host clients and migrated authentication/combos/history under one OAuth owner. Frozen source `785eeb261d688bf5071f13c700e153b3f93497b2`; dated acceptance and current-state rollback evidence are in `docs/observability/TEST_REPORT.md` and `ROLLOUT_ROLLBACK.md`. No client configuration changed.
 - Gemini/Muse browser generation boundaries and hidden transport retries remain explicitly incomplete; no fabricated physical counts. Native Grafana/Prometheus and Alloy/Loki smoke checks passed; Compose/Langfuse runtime still require Docker access/capacity. Full seven-day Langfuse retention is license-gated. The quiet canary's additional p95 overhead was 15.07ms against a 10ms target; synchronous WAL checkpoint latency was profiled without weakening durability.
 - Exact executed checks and remaining limitations are recorded in `docs/observability/TEST_REPORT.md`.
+
+## Security
+- Rotated an exposed Cloudflare connector credential, evicted pre-rotation sessions, removed the hard-coded boot token, and blocked metrics on both public gateway hostnames. Credentials/backups remain private; this is operational remediation, not a security audit.
 
 # v0.5.111 (2026-10-26)
 
