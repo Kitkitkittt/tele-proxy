@@ -87,19 +87,7 @@ describe("xiaomi proxy authorization and forwarding", () => {
     vi.resetModules();
     const { proxyAccountRequest } = await import("../../src/lib/mimoLoginSession.js");
 
-    vi.stubGlobal("fetch", vi.fn(async (url) => {
-      calls.push({ url: String(url), cookie: null });
-      if (calls.length === 1) {
-        return new Response(null, {
-          status: 302,
-          headers: { location: "https://account.xiaomi.com/fe/after-hint", "set-cookie": "serviceToken=hop-cookie; Domain=.xiaomi.com; Path=/" },
-        });
-      }
-      return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
-    }));
-
-    // Capture the Cookie header actually sent, via the underlying init.
-    const realFetch = globalThis.fetch;
+    // Capture the Cookie header actually sent on each hop.
     vi.stubGlobal("fetch", vi.fn(async (url, init) => {
       calls.push({ url: String(url), cookie: new Headers(init.headers).get("cookie") });
       if (calls.length === 1) {
@@ -110,7 +98,6 @@ describe("xiaomi proxy authorization and forwarding", () => {
       }
       return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
     }));
-    void realFetch;
 
     const req = new Request(`${ORIGIN}/fe/service/login`, { headers: { cookie: "auth_token=should-not-forward" } });
     await proxyAccountRequest({ jar: new Map(), upstreamBase: "https://mimo-server-cn.xiaomimimo.com", proxyUrl: null }, req, ORIGIN);
