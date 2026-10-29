@@ -445,3 +445,7 @@ Fixed in source, each with a regression that fails against the pre-fix tree:
 
 All four regressions fail before the change and pass after; five adjacent privacy suites total **19 passed**. Remaining, unmitigated by choice: the cookie payload is still unsigned, so an authenticated holder can tamper with the upstream jar under their own session. Signing needs a Web-Crypto HMAC key readable in the Edge proxy bundle, which the file-based `JWT_SECRET` is not.
 
+Two-axis review of `500c42b9..HEAD`: **Standards — no violations**, one non-blocking duplicated-test-scaffold smell (the dead duplicate fetch mock in the SSRF regression was removed in `59aacf32`, re-verified 3/3 plus lint). **Spec — no findings.** The reviewer judged the strict `hasValidToken` gate to be *stricter* than the dashboard's own `requireLogin=false` UX, so a deployment running without login will now have the Xiaomi login flow rejected: a UX consequence of the fix, not a bypass.
+
+Residual risk, pre-existing and unchanged by this work: `dashboardSession` resolves its secret at module load and throws if secret storage is unreadable, which would stop the proxy bundle loading rather than fail closed per request. Making that lazy is a separate change and was not attempted here.
+
