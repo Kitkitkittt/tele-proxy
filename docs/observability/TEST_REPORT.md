@@ -449,3 +449,9 @@ Two-axis review of `500c42b9..HEAD`: **Standards — no violations**, one non-bl
 
 Residual risk, pre-existing and unchanged by this work: `dashboardSession` resolves its secret at module load and throws if secret storage is unreadable, which would stop the proxy bundle loading rather than fail closed per request. Making that lazy is a separate change and was not attempted here.
 
+#### 2026-10-29 informed authorization to deploy the security fixes
+
+Unlike the earlier switches, this one follows a direct choice. The handoff listed three options — deploy the SSRF fix, keep `500c42b9`, or revert to `6e8a863a` — and stated that deploying meant another switch under the open performance gate. The owner answered "commit and redeploy". That is an informed authorization for **one** switch to the reviewed tip, scoped to the security and display corrections; it is not a performance-gate pass, and the `<10 ms` repeatability gate stays open.
+
+It does not authorize changing durability settings, PRAGMAs, acknowledgment or accounting behaviour, client/DNS configuration, or starting monitoring/Langfuse backends.
+
