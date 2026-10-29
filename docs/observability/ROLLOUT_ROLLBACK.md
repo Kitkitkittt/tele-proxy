@@ -2,6 +2,8 @@
 
 **Historical scope:** sections 1–7 describe the original isolated canary; their commands do not authorize production changes. The operator-approved native deployment at `tele-proxy.vnibb.xyz` and later `da851bcf` redeploy are dated in [TEST_REPORT.md](TEST_REPORT.md#2026-10-29-redeploy-da851bcf-and-alternating-overhead-result); current release pointers are in section 8. The current user explicitly authorizes further implementation, commit and redeployment, not unrelated DNS/client/listener or backend changes. This documentation correction performs no runtime checks. Docker monitoring/Langfuse backends are not certified deployed by the gateway cutovers.
 
+**Current operational decision:** after the latest redeploy request, the user explicitly chose **hold until performance passes**, not a gate exception. Do not switch `current` or restart production for the source-only security corrections until the unchanged ten-run gate qualifies. Native `cutover.py --check` is read-only acceptance, not a deploy command. The immediate rollback target for any future switch is the release actually current before that operation (`da851bcf` at the latest preflight), not the older historical `785eeb` pointer.
+
 ## 1. Prepare without starting anything
 
 1. Use branch `codex/1-tele-proxy`, retain upstream pin `3a978a631ad65529c06e48ce495092d5bba29f46`; record the actual feature commit/image digest in the release record. Build the gateway natively on the deployment CPU architecture using the repository workflow; pin its registry content digest. Do not substitute an upstream stock image without this feature. Do not use emulation or copy live data/refresh tokens.

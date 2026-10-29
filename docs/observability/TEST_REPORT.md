@@ -196,6 +196,8 @@ Performance result: **target not consistently met.** Record-every-run alternatin
 
 Contract: [parent #1](https://github.com/Kitkitkittt/tele-proxy/issues/1), especially sections 3–10 and its 20-row acceptance table; [ticket #11](https://github.com/Kitkitkittt/tele-proxy/issues/11). This matrix is a documentation/read-only reconciliation, **not a new test run or candidate qualification**. Its historical checkout baseline was `0983387103ecceadeb1b96d3fe038d837a1d243c` with concurrent uncommitted implementation, and its original deployed pin was `785eeb261d688bf5071f13c700e153b3f93497b2`. The latest recorded deployed source is now `da851bcfb6ccad7ee80f2dd8d5e50badfea9686b`, release `da851bcf-20261029T082307Z`; no runtime reinspection was performed for this correction. Historical executed evidence must not be applied automatically to newer edits.
 
+**Superseding evidence:** the matrix below retains its dated pre-candidate scope. Mounted editor save/rollback-to-wire and inference-linked diagnostic project isolation/disable/expiry were subsequently exercised in [the candidate record](#2026-10-29-hot-path-and-offline-suite-candidate). The later [raw-key security correction](#2026-10-29-raw-key-stats-disclosure-correction) replaces inadequate source-text coverage with behavioral serialization proof. Do not read historical “open candidate proof” rows as claims that those implementations are still absent. Performance and unexercised backend/retention/restore criteria remain open.
+
 Evidence keys:
 
 - **H1** — [Executed checks](#executed-checks): historical 31-file/460-test regression, standalone build and pinned validators. Exact command/limitations are preserved above.
@@ -328,3 +330,54 @@ Checkpoint `85dcbe99` was not secure for historical usage reads: raw API keys ap
 - **Focused review:** production hashing/opaque UI keys found sound. Reviewer caught wall-clock dependence in the new timestamp fixture. Pinned fixture timezone to UTC and Date to `2026-10-29T12:00:00Z`, restoring both afterward; production date handling unchanged. After this test-only edit, attribution rerun from an `Asia/Ho_Chi_Minh` process passed **2/2**. The full suite above preceded this fixture-only stabilization; no full-suite rerun is claimed for the later edit.
 
 No redeploy, production state mutation, threshold change, WAL/checkpoint/durability change, or rerun of the previously failed performance gate. Production remains on the older binary; the security fix is not active there. Existing performance/capacity/backend-retention and other acceptance blockers remain open.
+
+## 2026-10-29 stale-work audit and held redeploy
+
+The user requested remaining-work checks, commit and redeploy, then explicitly selected **hold until performance passes** instead of an exception. Production remains `da851bcf`; no service restart, state copy/restore, DNS/client/credential change or backend deployment was performed.
+
+### Corrective implementation and checks
+
+- Removed cookie-header prefixes and attacker-controlled paths from Xiaomi login ingress diagnostics before dashboard authorization (`src/proxy.js`). Feature-mode upstream errors emit only a finite event; original 502 handling and session clearing remain. Source-only stats-key fix `b7932127` also remains undeployed.
+- Behavioral reproduction against a temporary copy of pre-fix source: **4 failed, 1 passed**; synthetic cookie/path/upstream-error sentinels appeared in captured logs. The temporary harness was removed. Corrected ingress plus existing MiMo security suite: **2 files, 8 passed**.
+- Roadmap reconciled: mounted editor save/rollback-to-wire and inference-linked project diagnostics are already implemented and exercised. The historical criterion matrix now links superseding evidence instead of scheduling duplicate capture/editor implementations. Open backend/retention/restore/physical-send criteria remain open.
+- Clean feature-off native build including ingress correction succeeded on Next.js 16.4.3, including its TypeScript build phase. No separate root typecheck script exists. Existing `lazyRuntime.js` webpack warnings remain; standalone/static/public/custom-server copied.
+- Preflight read-only operational checker passed SQLite integrity and authenticated core reads: 303 connections, 9 nodes, 7 keys, 12 combos, 1,348,198 usage rows. Tele-proxy active/enabled, `NRestarts=0`; old gateways inactive/disabled. These reads are not public/browser/model-inference or restore proof. Root filesystem remains 91% used with approximately 42 GiB free.
+
+### Performance investigation, not acceptance substitution
+
+Before the ingress edit, freshly rebuilt `b7932127` passed all 25 canary behavior cases but exited **2** at concurrency 2, 40 samples/mode, off-on order: provider-subtracted gateway p95 **34.487 ms off / 64.083 ms on**, additional **29.596 ms**. No build/tests overlapped that timing.
+
+Disposable SQL timing instrumentation on isolated state observed a **17.040 ms request-ledger INSERT stall** and **3.171 ms RELEASE**. A separate write-sync-only `strace` run recorded 35 sync calls, max **20.560 ms**, with multiple calls above 10 ms; includes startup/shutdown, not a per-request distribution. Historical checkpoint syscall attribution remains at [Overhead](#overhead). Measured-window CPU profiles showed distributed SQL/framework/GC work and inspector-stop overhead; they do not establish exporter serialization as the tail cause. Profiled runs are diagnostics, not qualifying performance samples.
+
+The native adapter applies existing **`synchronous=NORMAL`**, not FULL; no FULL override was found. That setting was not changed. Existing process-crash durability checks are not evidence of FULL power-loss guarantees. No acknowledgments, ledger writes, WAL/checkpoint settings, workloads or thresholds were removed/relaxed. A small isolated 40-write root-filesystem probe measured fsync p95 **5.138 ms**, max **6.097 ms**; it does not prove SQLite checkpoint latency. A second mounted SSD path denied unprivileged temporary-file creation. No storage permissions/mounts or production paths were changed; tmpfs would not qualify persistent durability.
+
+Final-artifact ten-run gate, full suite, actual ingress HTTP privacy smoke and two-axis review are recorded below after completion. No micro-optimization is claimed to solve the measured storage tail.
+
+### Final corrected artifact: complete performance gate
+
+Native x64 Node v24.20.0, Intel Core i5-6300HQ/4 logical CPUs, 25,072,115,712 bytes RAM; unchanged indexed fixture, 10 ms mock-provider delay, 100 input/20 output tokens, six warmups and 40 samples/mode. Ten runs total, five each at concurrency 1 and 2, alternating order. No build/tests/profiler overlapped these runs. Raw JSON/stderr/exit results remain privately at `/tmp/tele-proxy-held-gate.nWX4wK`.
+
+| Run | Off gateway p95 ms | On gateway p95 ms | Additional ms | `<10 ms` |
+|---|---:|---:|---:|---|
+| c1-pair1-off-on | 27.553 | 29.238 | 1.685 | pass |
+| c1-pair2-on-off | 25.198 | 78.196 | 52.997 | FAIL |
+| c1-pair3-off-on | 31.695 | 42.511 | 10.816 | FAIL |
+| c1-pair4-on-off | 27.057 | 48.665 | 21.608 | FAIL |
+| c1-pair5-off-on | 42.826 | 30.370 | -12.456 | pass |
+| c2-pair1-off-on | 64.429 | 53.180 | -11.249 | pass |
+| c2-pair2-on-off | 44.102 | 54.351 | 10.249 | FAIL |
+| c2-pair3-off-on | 38.913 | 60.592 | 21.679 | FAIL |
+| c2-pair4-on-off | 37.165 | 95.458 | 58.293 | FAIL |
+| c2-pair5-off-on | 46.245 | 54.316 | 8.072 | pass |
+
+**4/10 pass: performance qualification FAILED.** Every run passed all 25 ingress behavior cases; the six p95 misses exited 2. No median/best-run exemption. Per-request paired provider subtraction remains unchanged; no inference that negative deltas prove a faster gateway. The fixture reconciled 42 request/46 attempt records, 34 known-usage/12 unknown-usage attempts, 26 known-cost/20 unknown-cost attempts and **3,120 micro-USD** configured metered estimates, with unknown quantities remaining null. This fixture is separate from historical 88/92 acceptance totals.
+
+### Final runtime privacy and review
+
+- Actual corrected standalone server, feature-on at startup against fresh synthetic state on `127.0.0.1:20294`: missing-session and forged-session `/fe/` requests returned expected 404 fallthrough; forged cookie cleared (`Max-Age=0`). Captured stdout contained the finite missing-session event but neither synthetic cookie nor attacker path. Server stopped and private state removed. No live upstream was contacted.
+- `node --check` for changed proxy and regression plus scoped ESLint exited 0. Two-axis code review: **Standards: no findings; Spec: no findings**. Reviews apply only to the bounded privacy/evidence correction, not broader release readiness.
+- Full isolated offline suite: **423 file entries, 4,613 passed, zero failed/collection failures, 52 skipped/pending, one todo**, exit 0 in 344.89 seconds. One serial invocation from `tests/`: `node node_modules/vitest/vitest.mjs run --maxWorkers=1 --reporter=json --outputFile=/tmp/tele-proxy-held-final-suite.json`, inside `sudo -n unshare -n` with only loopback enabled and `runuser`/`env -i`, fresh credential-free HOME/DATA_DIR, `TELE_PROXY_CANARY=1`. Live-provider gates and visible missing-prerequisite skips remain; skipped is not passed.
+- Corrective diff and new synthetic regression each passed redacted gitleaks scanning. Seven updated Markdown files had balanced code fences and no missing relative file targets. Disposable probes/smoke harnesses were removed; raw gate/profile/suite results remain private.
+
+Deployment remains blocked by the explicit user hold. No candidate switch or production backup/rollback/restart was attempted. Next release prerequisite is a solution to synchronous persistent-storage tail latency that qualifies every unchanged run; neither unsafe acknowledgment deferral nor tmpfs/PRAGMA relaxation is accepted. Real monitoring/Langfuse ingestion/retention, backend restore, sustained capacity and hidden/browser-send completeness remain independently open.
+

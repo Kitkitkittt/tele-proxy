@@ -2,6 +2,14 @@
 
 Read-only host snapshot began **2026-10-29 03:54:03 UTC**; version, resolver and advisory queries followed in the same inventory session. Its checkout, deployed release and resource observations below are historical, not a fresh live-state inspection. The latest recorded deployed source is `da851bcfb6ccad7ee80f2dd8d5e50badfea9686b`, release `da851bcf-20261029T082307Z`; see the [redeploy record](TEST_REPORT.md#2026-10-29-redeploy-da851bcf-and-alternating-overhead-result). This documentation correction ran no runtime checks. Historical 2026-10-27–28 observations are also retained. This is a bounded inventory, not a security audit, capacity qualification or release acceptance.
 
+## 2026-10-29 authorized redeploy preflight
+
+This later bounded check observed a clean `codex/1-tele-proxy` checkout at `b7932127`, enabled/running `tele-proxy.service` with `NRestarts=0`, and inactive/disabled 9router/OmniRoute. The read-only `~/.config/tele-proxy/cutover.py --check` passed authenticated settings/core reads and SQLite `quick_check`, observing 303 connections, 9 nodes, 7 keys, 12 combos and 1,348,198 usage rows. Deployment metadata still points to source `da851bcfb6ccad7ee80f2dd8d5e50badfea9686b`; no artifact rehash or public/browser probe was performed by this preflight. Root storage remained 91% used, approximately 42 GiB available; this is not sustained capacity qualification.
+
+The user subsequently chose **hold redeployment until performance passes**. Fresh synthetic standalone performance still missed the unchanged gate; no production restart/state mutation occurred. The source-only stats-key fix and ingress-cookie logging correction are not active in production. Available root storage is ext4 on NVMe; a second mounted SSD path rejected unprivileged creation of a new isolated sync probe. No storage permissions, mount settings or production data location were changed. See the dated [verification report](TEST_REPORT.md) for exact qualification and profiling scope.
+
+## Historical inventory snapshot
+
 ## Current checkout versus deployed artifact
 
 The table preserves the **03:54 UTC snapshot**. Its old checkout/release pins and read-only authority apply to that inspection only. The current user explicitly authorizes further implementation, commit and redeployment; no additional runtime outcome is asserted here.

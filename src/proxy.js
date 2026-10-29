@@ -33,7 +33,7 @@ export default async function proxy(request) {
     // Anomaly: a login-flow XHR arrived without the session — the classic
     // cause of silent SPA "Something went wrong" 404s. Narrow to login paths
     // so unrelated unknown routes don't spam this.
-    console.log(`${new Date().toISOString().slice(11,23)} [mimo-login] no-session ${pathname} (cookie header: ${cookies ? cookies.slice(0, 80) : "<none>"})`);
+    console.log("[mimo-login] no-session");
   }
   if (hasSessionCookie) {
     const sess = sessionFromRequest(request);
@@ -48,12 +48,13 @@ export default async function proxy(request) {
           return attachSessionCookie(await proxyAccountRequest(sess, request, origin), sess);
         }
       } catch (e) {
-        console.log(`${new Date().toISOString().slice(11,23)} [mimo-login] proxy error:`, e?.message || e);
+        if (process.env.TELE_PROXY_ENABLED === "1") console.log("[mimo-login] proxy error");
+        else console.log(`${new Date().toISOString().slice(11,23)} [mimo-login] proxy error:`, e?.message || e);
         return new Response("mimo login proxy error", { status: 502 });
       }
     } else {
       // Anomaly (should not happen in a healthy flow): cookie present but unparseable.
-      console.log(`${new Date().toISOString().slice(11,23)} [mimo-login] session cookie undecodable — falling through (${pathname})`);
+      console.log("[mimo-login] session cookie undecodable — falling through");
     }
   }
 

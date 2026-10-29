@@ -12,6 +12,8 @@ Usage-statistics responses replace legacy `byApiKey` composite property names wi
 
 Correction: checkpoint `85dcbe99` removed a source-text AUDIT-002 assertion while raw keys were still returned in property names. Its green suite did not establish this security property. Behavioral 24h/7d serialization checks now cover the actual disclosure and colliding-mask separation; production remains vulnerable until a corrected binary is deliberately deployed.
 
+Xiaomi login ingress diagnostics no longer print cookie prefixes or attacker-controlled pathnames, including before dashboard authorization. Feature-mode proxy failures emit a finite event instead of raw exception text. Forged sessions still clear without forwarding; authorized failures retain their existing 502 response. This source correction is not yet deployed while the performance release hold remains active.
+
 Cursor's `CURSOR_STREAM_DEBUG=1` and `CURSOR_PROTOBUF_DEBUG=1` outputs are suppressed by runtime feature checks, including decoded protobuf payloads, tool names and error snippets. Importing modules while the feature is off cannot bypass suppression after runtime enablement; feature-off legacy debugging is unchanged.
 
 Inherited Google Analytics is removed from this fork in every mode. It is not runtime-flag gated because statically prerendered dashboard/login HTML could otherwise retain scripts from a feature-off build. Legacy console capture is guarded at its initializer as well as instrumentation startup, including root-layout callers. Production smoke must build with the feature off and start it on to check the static and runtime boundary.
