@@ -5,6 +5,7 @@
 - Durable logical-request and physical-attempt ledger, idempotent settlement/restart recovery, explicit unknown coverage, immutable tariffs, independent provider/metered/subscription/reference/local cost bases and authenticated usage view.
 - Bounded metadata-only OpenTelemetry/log export, authenticated Prometheus metrics, native dispatch hooks, terminal usage observation, first-content timing and client cancellation propagation.
 - Digest-pinned private monitoring, Langfuse 4.0.0 and optional Tempo profiles; four dashboards, fifteen alerts, bootstrap/backup/restore utilities and isolated synthetic canary.
+- Dependency-ordered remaining-ticket plan distinguishing implemented behavior, missing physical-send/diagnostic/dashboard work, isolated backend acceptance and operator-only decisions; completed migration is not scheduled again.
 
 ## Fixed
 - Preserve developer instructions through OpenAI-to-Anthropic translation and required policies independently of compression; reject known unsupported native preservation before dispatch.
