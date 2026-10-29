@@ -169,6 +169,29 @@ Private final backup reference: `~/.local/share/tele-proxy/backups/20261029T0249
 
 Remaining acceptance work is unchanged where not exercised: Compose/backend-volume restore, sustained capacity and growth, full Langfuse ingestion/retention, Tempo, stable alternating performance runs, hidden-library/browser physical-send completeness and security audit. Langfuse/Tempo were not started. Gateway deployment is live; those broader feature tickets remain open.
 
+## 2026-10-29 redeploy `da851bcf` and alternating overhead result
+
+Source `da851bcfa0a4e5c4b0e4c0aa7e3b0b3ae5c0f2d0` (branch `codex/1-tele-proxy`, pushed) fixes two defects found after the cutover: `claude-to-openai.js` `content_block_stop` called `state.toolCalls.get()` against a stateless `{}` state, and the golden header snapshot pinned node/package versions plus the host timezone offset. Release `~/.local/share/tele-proxy/releases/da851bcf-20261029T082307Z`, 3,610 files, artifact manifest `a4c6ea2bc75597c5da2fb1fcb33a3f1b99ffcb118d4c5a0be7b94a1ab9b89be0` (SHA-256 of `JSON.stringify(sortedMap{path: sha256})`; the format is recorded in `deployment.json` because the prior manifest's formula was not reproducible from the release tree).
+
+Functional result: **passed**. Pre-deploy cold backup `backups/pre-da851bcf-20261029T082208Z` (577 MB, `integrity_check=ok`, 303 connections, 1,340,499 usage rows, checksums verified); isolated rehearsal on a state copy at port 20299 before cutover; live rollback rehearsed in both directions (previous release healthy, new release healthy, left on new); `/api/health=200`, `/dashboard=200`, authenticated `/v1/models=200`; `NRestarts=0`; schema unchanged (`schemaVersion=1`, no new migrations). Comparison against baseline `785eeb2` over the same 20-file selection and the full suite (4,734 tests) produced **zero new failures**; all 35 remaining failures reproduce at baseline.
+
+Performance result: **target not consistently met.** Record-every-run alternating gate from [ROLLOUT_ROLLBACK.md](ROLLOUT_ROLLBACK.md#alternating-matched-benchmark), five matched pairs at concurrency 1 and 2, 40 samples/mode, order reversed each pair:
+
+| Concurrency | Pair | Order | Off p95 | On p95 | Additional | `<10 ms` |
+|---|---|---|---|---|---|---|
+| 1 | 1 | off-on | 32.8 | 36.8 | 4.0 | pass |
+| 1 | 2 | on-off | 29.6 | 50.8 | 21.2 | fail |
+| 1 | 3 | off-on | 34.0 | 53.7 | 19.7 | fail |
+| 1 | 4 | on-off | 29.2 | 48.6 | 19.3 | fail |
+| 1 | 5 | off-on | 28.2 | 39.8 | 11.6 | fail |
+| 2 | 1 | off-on | 47.6 | 62.2 | 14.6 | fail |
+| 2 | 2 | on-off | 42.7 | 64.4 | 21.7 | fail |
+| 2 | 3 | off-on | 45.8 | 58.0 | 12.3 | fail |
+| 2 | 4 | on-off | 71.0 | 56.7 | −14.3 | pass |
+| 2 | 5 | off-on | 69.9 | 65.1 | −4.8 | pass |
+
+3 of 10 runs pass. `tele-proxy-canary.mjs:507` makes each miss a nonzero exit; there is no median-pass or best-of rule in the canary or in the [proposed repeatability gate](IMPROVEMENT_PLAN.md#per-ticket-next-slice-and-acceptance), which requires every additional gateway p95 to be `<10 ms`. The earlier ten ad-hoc runs (6 of 10 passing, not the 8 of 10 first stated) and this twenty-run gate are both retained. All 25 behavior cases passed in every run; only overhead failed. Baseline spread (28.2–71.0 ms off) exceeds some measured deltas and negative deltas appear, which is evidence of unstable measurement, **not** proof that host jitter caused each miss. The performance gate therefore stays open and this artifact is not performance-qualified.
+
 ## 2026-10-29 criterion-to-evidence matrix
 
 Contract: [parent #1](https://github.com/Kitkitkittt/tele-proxy/issues/1), especially sections 3–10 and its 20-row acceptance table; [ticket #11](https://github.com/Kitkitkittt/tele-proxy/issues/11). This matrix is a documentation/read-only reconciliation, **not a new test run or candidate qualification**. Current checkout baseline is `0983387103ecceadeb1b96d3fe038d837a1d243c` with concurrent uncommitted implementation; deployed frozen gateway remains `785eeb261d688bf5071f13c700e153b3f93497b2`. Historical executed evidence below must not be applied automatically to those new edits.
