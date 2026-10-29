@@ -503,3 +503,26 @@ Post-switch: health 200 loopback and public; public `/api/metrics` 404; dashboar
 
 The evidence limit from the previous section still applies: these two logging sites require a real certificate failure or egress exception to exercise at runtime, so their proof is the unit regression.
 
+#### 2026-10-30 Gemini web generation boundary (`067abd0c`)
+
+Source only — **not deployed**; the running release is still `73fa569a`.
+
+The Gemini browser executor never produced a durable attempt. Both the text and image paths called `reportUnsupportedDispatch({reason: "generation-boundary-unavailable"})` and then pressed Enter, so `teleProxy.js` set `accountingIncomplete = true` for every Gemini web request and `accounting_completeness` could never be `complete`, whatever the request did. This was the first slice named in #5: one observable browser physical-generation boundary at a time.
+
+`open-sse/executors/gemini-web/dispatch.js` now routes the batchexecute POST for the duration of the submit, mirroring the committed `chatgpt-web/dispatch.js`. Only the first matching POST in the window is accounted; later overlapping POSTs go to the wire unaccounted, so a poll cannot invent a second attempt. Both the text and image paths use it, and the now-dead `reportUnsupportedDispatch` import was removed.
+
+| Check | Result |
+|---|---|
+| Boundary wire fixture (`unit/gemini-browser-generation-boundary.test.js`) | 5 pass. One attempt for the send POST; zero when the composer never submits; ledger rejection aborts the request; required policy fails closed before touching the page; an overlapping poll POST still yields one attempt. |
+| Executor wiring (`unit/gemini-browser-wiring.test.js`) | Drives the real `execute()`; asserts the dispatch helper is called with the live page and that Enter is pressed *inside* the submit callback. |
+| Discrimination | Reverting both calls back to `reportUnsupportedDispatch` **fails** the wiring test; the earlier helper-only version passed while reverted, which is why it was replaced. The poll test was red (`called 2 times`) before the "first matching POST" guard. |
+| Full offline suite | **4,618 passed, 0 failed**, 14 expected fail, 52 skipped/pending, 1 todo, 423 files. |
+
+**Evidence limits.** No live Gemini send was executed for this record — no capturable Gemini web session and no authorized metered/browser inference. The boundary is therefore proven at the route fixture and executor seam, not against Google's live client.
+
+- **No rpcid discrimination.** The matcher is a POST to `/BardChatUi/data/batchexecute`. Quota probes, mode reads and reply streams use the same path. The only captured rpcid in the repo (`aPya6c`, `domCapture.js`) is the reply stream, not the send, so filtering on a guessed value could silently stop counting real generations. Upgrading needs one captured live turn.
+- **Window closes with the key press.** A POST landing after `page.keyboard.press()` resolves goes uncounted. That fails toward `accounting_completeness = incomplete`, not toward a false attempt, which is the safer direction.
+- Consequence of both limits: a Gemini web request can still read `incomplete`. This change removes the guaranteed-incomplete path; it does not claim every Gemini request now records `complete`.
+
+Remaining #5 work is unchanged: the Muse browser boundary and hidden retries, plus the #1 reconciliation.
+
