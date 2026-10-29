@@ -63,4 +63,19 @@ describe("feature-on mimo proxy diagnostics", () => {
     await buildBrowserResponse(sess(), upstream, ORIGIN, "/pass/serviceLogin", `https://account.xiaomi.com/pass?sts=${SENTINEL}`);
     expect(logged.join("\n")).toContain(SENTINEL);
   });
+
+  it("never forwards our origin's cookies upstream when the server jar is empty", async () => {
+    vi.stubEnv("TELE_PROXY_ENABLED", "1");
+    const seen = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url, init) => {
+      seen.push(new Headers(init.headers).get("cookie") || "");
+      return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+    }));
+    const req = new Request(`${ORIGIN}/fe/service/login?x=1`, {
+      headers: { cookie: `auth_token=${SENTINEL}; 9r_mimo_login=${SENTINEL}` },
+    });
+    await proxyAccountRequest(sess(), req, ORIGIN);
+    expect(seen.length).toBeGreaterThan(0);
+    for (const cookie of seen) expect(cookie).not.toContain(SENTINEL);
+  });
 });

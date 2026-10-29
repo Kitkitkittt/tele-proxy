@@ -527,10 +527,6 @@ async function fetchUpstream(sess, url, init, cookieValue) {
   return loginFetch(url, { ...init, headers, redirect: "manual", signal: AbortSignal.timeout(20000) }, sess?.proxyUrl || null);
 }
 
-function browserCookieHeader(req) {
-  return req.headers.get("cookie") || "";
-}
-
 // Headers never forwarded to the upstream account host.
 const STRIP_UPSTREAM_HEADERS = new Set([
   "host", "cookie", "connection", "content-length", "transfer-encoding",
@@ -617,7 +613,10 @@ export async function proxyAccountRequest(sess, req, origin) {
   // Follow same-host redirects server-side (they carry Set-Cookie we must keep).
   let current = upstreamStr;
   let res = null;
-  const requestCookies = cookieHeaderFor(sess, current) || browserCookieHeader(req);
+  // Server jar only. The browser's cookies belong to our origin (auth_token,
+  // 9r_mimo_login) and must never be replayed to the upstream account host;
+  // any upstream cookie arrives via absorbSetCookies on a prior hop.
+  const requestCookies = cookieHeaderFor(sess, current);
   for (let hop = 0; hop < 8; hop++) {
     res = await fetchUpstream(sess, current, hop === 0 ? init : { ...init, body: undefined }, requestCookies);
     absorbSetCookies(sess, res, current);

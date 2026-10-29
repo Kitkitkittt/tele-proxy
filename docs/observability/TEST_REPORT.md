@@ -396,3 +396,9 @@ The advisory's storage claim was **rejected as stated**: the 17.040 ms INSERT an
 
 Follow-up full suite after these fixes: **424 file entries, 4,617 passed, zero failed/collection failures, 52 skipped/pending, one todo**, exit 0 in 371.74 seconds under the same isolated credential-free/loopback-only conditions. Scoped ESLint on both changed source files and both regression files exited 0. No build, browser canary or performance rerun was performed for this follow-up; the 4/10 gate result above still governs.
 
+### 2026-10-29 operator-approved redeploy despite performance gate
+
+After being shown the **4/10** final-artifact gate result, the owner explicitly instructed "commit and redeploy". This is an **operator exception** recorded at the owner's direction, not a gate pass: the unchanged `<10 ms` per-run requirement is still unmet, and the repeatability gate in [IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md#per-ticket-next-slice-and-acceptance) stays open. No threshold was edited, no run was discarded and no median/best-of rule was added.
+
+Scope of the exception: promote the current branch source (security and display corrections only) to native production with a pre-deploy snapshot and reversible `current` switch. It does not authorize changing durability/PRAGMAs, dropping ledger writes, altering clients/DNS, or starting monitoring/Langfuse backends. Rollback remains the previously current release.
+
