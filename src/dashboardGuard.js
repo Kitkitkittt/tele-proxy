@@ -194,7 +194,9 @@ function isPublicApi(pathname) {
 }
 
 // Shared with src/proxy.js — the mimo login branch must respect dashboard auth.
-export { isAuthenticated };
+// Strict variant: ignores the `requireLogin=false` convenience pass, because the
+// Xiaomi branch follows a client-influenced egress target.
+export { isAuthenticated, hasValidToken };
 
 export const __test__ = {
   isLocalRequest,

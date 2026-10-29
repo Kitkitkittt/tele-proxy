@@ -292,7 +292,8 @@ export async function ensureServiceSession(sess) {
   try {
     const mod = await import("../../open-sse/shared/mimoAccount.js");
     const proxyOptions = sess.proxyUrl ? { enabled: true, url: sess.proxyUrl } : null;
-    log(`exchanging passToken (region=${sess.region}, egress=${sess.proxyUrl || "direct"}) ...`);
+    // proxyUrl may embed userinfo credentials; log only whether egress is proxied.
+    log(`exchanging passToken (region=${sess.region}, egress=${sess.proxyUrl ? (process.env.TELE_PROXY_ENABLED === "1" ? "proxied" : sess.proxyUrl) : "direct"}) ...`);
     const serviceCookie = await mod.getMimoAccountCookie(
       {
         region: sess.region,
@@ -533,6 +534,11 @@ const STRIP_UPSTREAM_HEADERS = new Set([
   "keep-alive", "upgrade", "expect", "proxy-connection",
   // Credentials for 9router itself — must never reach a third-party upstream.
   "authorization", "proxy-authorization",
+  // Internal forwarding metadata stamped by custom-server.js. The peer token is
+  // a per-process shared secret proving which hop set `x-9r-real-ip`; it is not
+  // an upstream SDK header and must never reach a third party.
+  "x-9r-peer-token", "x-9r-real-ip", "x-9r-via-proxy", "x-9r-cli-token",
+  "x-forwarded-for", "x-real-ip",
 ]);
 
 /**
@@ -616,8 +622,10 @@ export async function proxyAccountRequest(sess, req, origin) {
   // Server jar only. The browser's cookies belong to our origin (auth_token,
   // 9r_mimo_login) and must never be replayed to the upstream account host;
   // any upstream cookie arrives via absorbSetCookies on a prior hop.
-  const requestCookies = cookieHeaderFor(sess, current);
   for (let hop = 0; hop < 8; hop++) {
+    // Recomputed each hop: a 302's Set-Cookie and its path must apply to the
+    // next request, not stay bound to the first URL.
+    const requestCookies = cookieHeaderFor(sess, current);
     res = await fetchUpstream(sess, current, hop === 0 ? init : { ...init, body: undefined }, requestCookies);
     absorbSetCookies(sess, res, current);
     const loc = res.headers.get("location");

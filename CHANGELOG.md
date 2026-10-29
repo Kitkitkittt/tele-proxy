@@ -30,6 +30,8 @@
 - Key the 7d `lastUsed` overlay with the same `local-no-key|model|provider` composite the daily rollup writes, so feature-on no-key rows keep precise timestamps instead of date-only values.
 - Stop replaying the browser's origin cookies to `account.xiaomi.com`: the authorized proxy used a raw `Cookie` fallback when the server jar had no match, forwarding the dashboard `auth_token` and `9r_mimo_login` JWT to a third party. Upstream cookies now come only from the server-side jar.
 - Extend feature-mode Xiaomi log redaction to the takeover navigation URL (carries callback signature params) and to egress failure/exception detail; feature-off keeps each full diagnostic line.
+- Close a forged-cookie SSRF path: the Xiaomi login branch trusted an unsigned session payload's `p` (proxy URL) and authorised it with `isAuthenticated`, which passes when `requireLogin=false`. It now requires a real dashboard token. Also strip internal `x-9r-*`/forwarding headers before upstream and recompute jar cookies per redirect hop.
+- Redact the egress proxy URL (may embed userinfo) from the passToken exchange log in feature mode.
 
 ## Deployment limits
 - Native systemd gateway deployed 2026-10-29 at `tele-proxy.vnibb.xyz`, preserving old-host clients and migrated authentication/combos/history under one OAuth owner. Latest recorded source `500c42b92e43c5bc93365f6c133bb1514c28b3f0`, release `500c42b9-20261029T130824Z`; previous `6e8a863a-20261029T122006Z`. Both switches were made without an explicit waiver of the performance hold; the gate remains open. Dated acceptance and rollback evidence are in `docs/observability/TEST_REPORT.md` and `ROLLOUT_ROLLBACK.md`. No client configuration changed.

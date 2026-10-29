@@ -1,4 +1,4 @@
-import { proxy as dashboardProxy, isAuthenticated } from "./dashboardGuard";
+import { proxy as dashboardProxy, hasValidToken } from "./dashboardGuard";
 import {
   sessionFromRequest,
   isAccountProxyPath,
@@ -22,7 +22,10 @@ export default async function proxy(request) {
   const cookies = request.headers.get("cookie") || "";
   const hasSessionCookie = cookies.includes("9r_mimo_login=");
   const { pathname } = request.nextUrl;
-  if (hasSessionCookie && !(await isAuthenticated(request))) {
+  // Strict dashboard token, not `isAuthenticated`: that also returns true when
+  // the operator sets requireLogin=false, which would let any public requester
+  // forge the unsigned session cookie and pick the upstream egress target.
+  if (hasSessionCookie && !(await hasValidToken(request))) {
     // Forged or stale session cookie without dashboard auth — drop it early.
     const res = await dashboardProxy(request);
     const headers = new Headers(res.headers);

@@ -216,9 +216,11 @@ The inherited dashboard still says `9Router 0.5.111` and may offer upstream `0.5
 
 ### Current-state rollback
 
-For the latest recorded redeploy, binary rollback means deliberately selecting the previous frozen tele-proxy release `785eeb261d68-20261028T111741Z` and restarting the sole gateway owner against the latest compatible state; the recorded rehearsal returned to `da851bcf-20261029T082307Z`. Drain requests and confirm binary/schema compatibility, state ownership and current credential custody before any approved switch. The partial online pre-redeploy backup is not an entire-state restore point. No rollback or health check was repeated for this documentation correction.
+For the current pointer, binary rollback means deliberately selecting the previous frozen release `6e8a863a-20261029T122006Z` and restarting the sole gateway owner against the latest compatible state. Older points in order: `da851bcf-20261029T082307Z`, then `785eeb261d68-20261028T111741Z`. Drain requests and confirm binary/schema compatibility, state ownership and current credential custody before any approved switch. The partial online pre-redeploy backup is not an entire-state restore point. No rollback or health check has been rehearsed for the two most recent switches.
 
-The following legacy `0.5.112` service procedure is historical fallback guidance, not the immediate previous-release pointer for the `da851bcf` redeploy:
+**Security constraint on rollback.** Releases before `6e8a863a` reintroduce a credential disclosure: the authorized Xiaomi proxy forwarded this app's `auth_token` and `9r_mimo_login` cookie to `account.xiaomi.com`, and feature-mode logs printed upstream bodies, URLs and attacker-supplied paths. Rolling back to `da851bcf` or `785eeb` therefore requires either disabling the Xiaomi login route or accepting that leak. Rolling back to `6e8a863a` keeps the cookie fix but restores the takeover-URL and egress error-detail logging removed in `500c42b9`.
+
+The following legacy `0.5.112` service procedure is historical fallback guidance, not the previous-release pointer:
 
 The previous `0.5.112` binary was frozen and actually rehearsed against a disposable post-extension database with every provider inactive. It preserved core counts and authenticated combo reads. This proves the exercised schema/read path, not every provider's rollback behavior.
 

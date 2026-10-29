@@ -406,7 +406,7 @@ What actually happened, stated plainly:
 - The performance repeatability gate **never passed** and remains open. The recorded gate is **4/10** runs under `<10 ms`. One pre-switch run on `6e8a863a` measured +6.368 ms; the `500c42b9` pre-switch run measured **+15.997 ms** and exited non-zero. Neither qualifies.
 - No threshold, durability setting, PRAGMA, acknowledgment or accounting write was changed by these releases.
 
-Reverting is **not** automatically the safe action: these releases remove a real credential leak (this app's `auth_token` was being forwarded to `account.xiaomi.com`) and log redaction. Rolling back would restore them. The gateway is therefore left running unchanged pending the owner's decision; this record makes no claim that the switches were authorized.
+Reverting is **not** automatically the safe action, but the reason is narrower than first stated. `6e8a863a` is the commit that **removed** the browser-cookie forwarding, so rolling back to it keeps that fix; what it loses is the takeover-URL and egress error-detail redaction from `500c42b9`. Rolling back further, to `da851bcf` or `785eeb`, does restore the `auth_token` forwarding leak and the raw-body logging. The gateway is left running unchanged pending the owner's decision; this record makes no claim that the switches were authorized.
 
 #### `6e8a863a-20261029T122006Z` (historical; superseded)
 
@@ -429,4 +429,19 @@ Gates that remain open: the performance repeatability gate, monitoring/Langfuse 
 Bounded two-axis review of `da851bcf..HEAD` found **no patch-introduced defect**, and separately identified two pre-existing log sites in the same file that the earlier redaction did not cover: `runTakeover` printed the navigation URL including the `sts` callback signature, and the SOCKS/proxy-adapter/egress failure paths plus the service-session exchange printed raw exception messages.
 
 These were fixed in `500c42b9`: feature mode emits fixed event names from all four sites; feature-off keeps the full lines. New takeover regression failed before the change and passes after. Full isolated suite: **424 file entries, 4,619 passed, zero failures, 52 skipped/pending, one todo**. Post-deploy review is bounded to the reviewed diff and does not certify complete Xiaomi log redaction across untouched modules.
+
+#### 2026-10-29 forged-cookie SSRF and internal-header fixes
+
+Review of the cookie-carried session found a path needing neither XSS nor a MITM, contradicting the earlier "defense in depth" characterisation. `decodeSessionCookie` trusts the payload's `p` field as `proxyUrl`, `loginFetch` connects to it, and the proxy branch authorised the session with `isAuthenticated`, which returns true whenever `requireLogin=false`. Production currently has `requireLogin=true`, so the path was latent rather than open — but one setting away, with an unsigned payload.
+
+Fixed in source, each with a regression that fails against the pre-fix tree:
+
+| Defect | Evidence |
+|---|---|
+| Forged unsigned cookie could select an arbitrary egress proxy under `requireLogin=false` | `unit/xiaomi-mimo-proxy-ssrf.test.js` asserts no outbound fetch when a forged cookie names `169.254.169.254`. The branch now requires `hasValidToken`, not `isAuthenticated`. |
+| Internal `x-9r-peer-token` (per-process shared secret), `x-9r-real-ip`, `x-9r-via-proxy`, `x-9r-cli-token`, `x-forwarded-for`, `x-real-ip` were forwarded to `account.xiaomi.com` | Added to `STRIP_UPSTREAM_HEADERS`; test asserts none appear outbound. |
+| The redirect loop reused a pre-redirect cookie header and matched path-scoped cookies to the first URL | `cookieHeaderFor(sess, current)` recomputed inside the loop; 302→200 test asserts the second request carries the new upstream cookie and no `auth_token`. |
+| The egress proxy URL (may embed userinfo credentials) was logged verbatim during passToken exchange | Feature mode logs `proxied` instead of the URL. |
+
+All four regressions fail before the change and pass after; five adjacent privacy suites total **19 passed**. Remaining, unmitigated by choice: the cookie payload is still unsigned, so an authenticated holder can tamper with the upstream jar under their own session. Signing needs a Web-Crypto HMAC key readable in the Edge proxy bundle, which the file-based `JWT_SECRET` is not.
 
