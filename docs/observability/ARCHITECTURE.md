@@ -1,6 +1,6 @@
 # Tele-proxy observability architecture
 
-Scope: feature-flagged extension of upstream 9Router 0.5.111, commit `3a978a631ad65529c06e48ce495092d5bba29f46`. Existing routing, OAuth, translators, clients and production ingress remain authoritative and unchanged. Intended hostname `proxy.vnibb.xyz` is a promotion target, **not an activated or verified endpoint**.
+Scope: feature-flagged extension of upstream 9Router 0.5.111, commit `3a978a631ad65529c06e48ce495092d5bba29f46`. Existing routing, OAuth, translators, clients and production ingress remain authoritative and unchanged. **The cutover is complete**: `tele-proxy.vnibb.xyz` is the live public endpoint (native systemd, release `a73c43a7-20261029T170132Z`). The earlier `proxy.vnibb.xyz` promotion target is historical and was not activated.
 
 ## Data flow and authority
 
@@ -61,4 +61,4 @@ Measure storage rather than assert a guessed bytes/request rate. At two quiet sn
 
 ## Limitations and evidence
 
-Compose, backend health and generation mapping require version-specific validation on a Docker-capable host. The implementation environment reports Docker permission denied, so artifacts are configuration, not running services. Capacity, retention-license acceptance, backup restore rehearsal and live credentials/spend authorization remain separate promotion gates. No live inference, production volume mount, DNS, ingress or active client endpoint change is authorized by these artifacts. [ROLLOUT_ROLLBACK.md](ROLLOUT_ROLLBACK.md) contains executable validation and recovery instructions; actual executed results belong in [TEST_REPORT.md](TEST_REPORT.md).
+Compose, backend health and generation mapping require version-specific validation on a Docker-capable host. Docker **is** reachable here via noninteractive `sudo -n docker info` (server `29.1.3`, x86_64) — the earlier "permission denied" note described the unprivileged client and is superseded. Nothing has been started, so the artifacts remain configuration, not running services. Current headroom is **32 GiB free on a 93%-used root filesystem and 16.9 GiB available RAM**, tighter than the older 51 GiB/13 GiB figures; disk is the binding constraint for any telemetry store. Capacity, retention-license acceptance, backup restore rehearsal and live credentials/spend authorization remain separate promotion gates. No live inference, production volume mount, DNS, ingress or active client endpoint change is authorized by these artifacts. [ROLLOUT_ROLLBACK.md](ROLLOUT_ROLLBACK.md) contains executable validation and recovery instructions; actual executed results belong in [TEST_REPORT.md](TEST_REPORT.md).

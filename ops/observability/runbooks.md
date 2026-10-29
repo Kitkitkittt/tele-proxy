@@ -55,6 +55,31 @@ No request/key/session/project identifiers, prompt hashes, raw errors, or arbitr
 
 Operational coverage limitations are explicit on dashboards: tokens cannot be grouped by combo/project from this metric contract; `upstream_error` is not an exact 5xx count; no empty-stream, gateway-only overhead, per-call generation-speed, quota-age, configured-budget, or authoritative container-restart series is provided. Provider success fraction measures observed attempts, not active provider health. Process start-time changes reveal observed process restarts, but multiple restarts between scrapes count once. First-content p95 differences do not measure gateway overhead. Aggregate output tokens/second measures finalized tokens over wall time, not per-call generation speed or inter-token latency. Use ledger/log evidence and the controlled benchmark for those questions.
 
+### Missing-signal classification (#10)
+
+Each signal the ticket requires is either implemented, covered by an authoritative alternative, or an accepted omission. "Alternative" means a documented, authenticated path exists — **not** that the signal appears in Prometheus.
+
+| Required signal | State | Evidence / alternative |
+|---|---|---|
+| Requests vs attempts | Implemented | `nine_router_requests_total`, `nine_router_attempts_total`; authoritative reconciliation in `/api/usage/ledger`. |
+| Provider availability | **Alternative** | `nine_router_attempts_total{outcome}` measures observed attempts, not active-provider health. No synthetic provider poller exists. |
+| Combo/project token views | **Alternative** | Forbidden as metric labels; use authenticated `GET /api/usage/ledger` project attribution and `/dashboard/usage`. |
+| Exact 5xx count | **Omission** | `upstream_error` is a routing reason, not an HTTP status count. Status codes are not exported. |
+| Empty-stream count | **Omission** | No series. Detect via ledger `error` outcome with zero output tokens. |
+| Per-call generation speed / inter-token latency | **Omission** | Only aggregate finalized tokens over wall time. Use the controlled benchmark. |
+| Gateway-only overhead | **Alternative** | `scripts/tele-proxy-canary.mjs` paired off/on runs with per-request provider subtraction. |
+| Quota age | **Alternative** | Provider quota state lives in provider metadata, not metrics; read from the dashboard. |
+| Configured budget | **Omission** | No budget engine exists; inventing one is out of scope for #10. |
+| Container restarts | **Alternative** | `nine_router_process_start_time_seconds` changes reveal observed restarts; multiple restarts between scrapes count once. Native systemd, so no container series applies. |
+| Telemetry queue depth and drops | Implemented | `nine_router_export_queue_size` (gauge, depth) and `nine_router_telemetry_dropped_total{reason}`. |
+| Cancellations | Implemented | `nine_router_attempts_total{outcome="cancelled"}` and ledger `cancelled` outcome. |
+| First-content timing | Implemented, bounded | `nine_router_client_first_content_seconds` and `nine_router_upstream_first_content_seconds` histograms; a p95 difference between them is not proof of gateway overhead. |
+| Request latency | Implemented | `nine_router_request_duration_seconds` histogram. |
+| In-flight requests, event-loop delay, RSS, CPU | Implemented | `nine_router_inflight_requests`, `nine_router_event_loop_delay_seconds`, `nine_router_process_resident_memory_bytes`, `nine_router_process_cpu_seconds_total`. |
+| Unknown-usage rate | Implemented | `nine_router_usage_unknown_total`. |
+
+Accepting the omissions is an operator decision this document cannot grant. The runtime half of #10 — Loki datasource health, one real log query, alert activation — remains blocked on a running #9 monitoring stack.
+
 ## Canary unavailable
 
 Alerts: `TeleProxyCanaryUnavailable`.

@@ -266,7 +266,10 @@ async function fetchWithTlsFallback(url, options, proxyUrl) {
         throw err;
       }
       // ponytail: in-memory insecure agent fallback for self-signed MITM corporate/antivirus certs
-      console.warn(`[ProxyFetch] TLS cert verification failed (${err.cause?.code || err.code}), retrying with insecure TLS: ${url}`);
+      // Feature mode: this URL can carry callback/signature params (Xiaomi
+      // login hops). Every sibling warn in this file is guarded the same way.
+      if (process.env.TELE_PROXY_ENABLED !== "1") console.warn(`[ProxyFetch] TLS cert verification failed (${err.cause?.code || err.code}), retrying with insecure TLS: ${url}`);
+      else console.warn(`[ProxyFetch] TLS cert verification failed (${err.cause?.code || err.code}), retrying with insecure TLS`);
       const insecureDispatcher = await getDispatcher(proxyUrl, true);
       return await dispatchPhysicalFetch({ signal: options.signal, transport: proxyUrl ? "http-proxy-tls-retry" : "http-tls-retry" }, () => originalFetch(url, { ...options, dispatcher: insecureDispatcher }));
     }

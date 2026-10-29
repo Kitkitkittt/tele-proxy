@@ -134,6 +134,13 @@ export async function POST(request) {
     });
     return res;
   } catch (error) {
+    // The try block wraps egress hops, so the message can embed a proxy URL
+    // with userinfo or a signed callback param. Feature mode: fixed event,
+    // generic body. Feature off: full diagnostic, as elsewhere in this flow.
+    if (process.env.TELE_PROXY_ENABLED === "1") {
+      console.log(`${new Date().toISOString().slice(11,23)} [mimo-login] start error`);
+      return NextResponse.json({ error: "login start failed" }, { status: 500 });
+    }
     console.log(`${new Date().toISOString().slice(11,23)} [mimo-login] start error:`, error?.message || error);
     return NextResponse.json({ error: error?.message || "login start failed" }, { status: 500 });
   }

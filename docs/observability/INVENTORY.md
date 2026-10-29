@@ -1,12 +1,28 @@
 # Inventory
 
-Read-only host snapshot began **2026-10-29 03:54:03 UTC**; version, resolver and advisory queries followed in the same inventory session. Its checkout, deployed release and resource observations below are historical, not a fresh live-state inspection. The latest recorded deployed source is `da851bcfb6ccad7ee80f2dd8d5e50badfea9686b`, release `da851bcf-20261029T082307Z`; see the [redeploy record](TEST_REPORT.md#2026-10-29-redeploy-da851bcf-and-alternating-overhead-result). This documentation correction ran no runtime checks. Historical 2026-10-27–28 observations are also retained. This is a bounded inventory, not a security audit, capacity qualification or release acceptance.
+Bounded read-only host snapshot, refreshed **2026-10-30 UTC**. Checkout, deployed release and resource observations are current as of this session; they are **not** a security audit, capacity qualification or release acceptance, and production traffic changes them immediately.
 
-## 2026-10-29 authorized redeploy preflight
+**Current pins.** Checkout `2b914e2d71dadf6cfc8e758f10e60d4c2aef6b49` on `codex/1-tele-proxy`, clean. Upstream `upstream/master` still pinned at `3a978a631ad65529c06e48ce495092d5bba29f46` (9Router `0.5.111`); no fetch/rebase/upgrade. Deployed source `de03dfae83d393d5173f0462fe4dd22da66368e5`, release `a73c43a7-20261029T170132Z`, 3,598 files, manifest `a15322ec63d6e52d…`; see the [deploy record](TEST_REPORT.md#2026-10-29-deploy-of-the-security-fixes-a73c43a7). No Docker gateway image applies — this is a native systemd deployment.
 
-This later bounded check observed a clean `codex/1-tele-proxy` checkout at `b7932127`, enabled/running `tele-proxy.service` with `NRestarts=0`, and inactive/disabled 9router/OmniRoute. The read-only `~/.config/tele-proxy/cutover.py --check` passed authenticated settings/core reads and SQLite `quick_check`, observing 303 connections, 9 nodes, 7 keys, 12 combos and 1,348,198 usage rows. Deployment metadata pointed to source `da851bcfb6ccad7ee80f2dd8d5e50badfea9686b` at that time; it was later updated through `6e8a863a-20261029T122006Z` to `500c42b9-20261029T130824Z`. No artifact rehash or public/browser probe was performed by this preflight. Root storage remained 91% used, approximately 42 GiB available; this is not sustained capacity qualification.
+## 2026-10-30 refresh
 
-The user subsequently chose **hold redeployment until performance passes**. Fresh synthetic standalone performance still missed the unchanged gate; no production restart/state mutation occurred. The source-only stats-key fix and ingress-cookie logging correction are not active in production. Available root storage is ext4 on NVMe; a second mounted SSD path rejected unprivileged creation of a new isolated sync probe. No storage permissions, mount settings or production data location were changed. See the dated [verification report](TEST_REPORT.md) for exact qualification and profiling scope.
+Collected with `git rev-parse/status`, `systemctl show/is-active/list-units`, `readlink`, `ss`, `df`, `free`, `getent`, `dig`, `node/npm --version`, client `--version`, `sudo -n docker info`, and a **read-only** SQLite connection. No environment, unit contents, credential files, request payloads or row data were printed.
+
+| Item | Observation | Boundary |
+|---|---|---|
+| Gateway service | `tele-proxy.service` active/running, `NRestarts=0`, memory 482,385,920 bytes, cumulative CPU 110,238,717,000 ns. | Snapshot, not peak or sustained load. |
+| Deployment | `current` → `releases/a73c43a7-20261029T170132Z`; metadata agrees with the recorded source and manifest. | Identity read from the symlink and deployment metadata; the artifact was **not** rehashed this session. |
+| State DB | `db/data.sqlite` mode `0600`, 688,123,904 bytes; state dir 676 MiB. `quick_check=ok`. Read-only counts: 303 connections, 9 nodes, 7 keys, 12 combos, 1,357,997 usage rows. | Counts drift with live traffic. Integrity checked; restorability of any backup was not. |
+| Listeners | Only `127.0.0.1:20128` among gateway/monitoring candidate ports. 20129, 20280/20281, 3000, 3100, 4317/4318, 9090, 12345 unbound. | Port state is transient. Loopback remains deliberate; direct-LAN reach is not restored. |
+| Ingress | `cloudflared.service` active, `NRestarts=0`. Public and local resolution agree (2 A records each). | DNS agreement does not establish HTTPS, auth, browser UI or origin health; no probe run here. |
+| Monitoring services | Zero matching running system units for prometheus/grafana/loki/alloy/langfuse/tempo. | Bounded local coverage only; says nothing about Docker, other hosts or differently-named units. |
+| Docker | `sudo -n docker info` → server `29.1.3`, `x86_64`. No containers started. | Access exists; image/volume/Compose health and restore remain unqualified. |
+| Host | 25,072,115,712 B RAM (16,934,301,696 available), 4,607,057,920 B swap used. Root ext4/NVMe 468 G total, 32 G available, **93% used**. | Disk pressure remains material; no new telemetry store is qualified on this host. Not a 24-hour growth measurement. |
+| Toolchain | Node `v24.20.0`, npm `11.19.0`; `.nvmrc` pins a different dev runtime (`22.23.4`) — do not confuse with the running Node. | — |
+| Clients | `pi 0.86.1`, `omp/18.13.3`, `codex-cli 0.159.2`, `opencode 1.18.35`, `claude 2.1.259`. | Versions do not establish which protocol each client currently sends. |
+| Legacy routers | `9router.service` and `omniroute.service` inactive. | Retirement already done; private recovery material is preserved, not re-verified. |
+
+Superseded statements earlier in this file: the `da851bcf`/`785eeb` deployment pins and the "hold redeployment" posture. The performance gate is still open — see the [verification report](TEST_REPORT.md) — but the deployed release is now `a73c43a7`.
 
 ## Historical inventory snapshot
 

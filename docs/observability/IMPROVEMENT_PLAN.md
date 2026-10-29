@@ -1,7 +1,24 @@
 # tele-proxy improvement and cross-machine handoff plan
 
-Planning baseline: 2026-10-28; deployment status corrected 2026-10-29. Repository: `Kitkitkittt/tele-proxy`; development branch: `codex/1-tele-proxy`; review: [draft PR #13](https://github.com/Kitkitkittt/tele-proxy/pull/13). Latest recorded native deployment: source `500c42b92e43c5bc93365f6c133bb1514c28b3f0`, release `500c42b9-20261029T130824Z`, made without an explicit waiver of the open performance hold; see the [switch record](TEST_REPORT.md#2026-10-29-production-switches-against-an-open-performance-hold). The original cutover/browser observations remain dated evidence, not new checks of this release. No Docker image deployment is implied.
+Planning baseline: 2026-10-28; deployment status corrected 2026-10-30. Repository: `Kitkitkittt/tele-proxy`; development branch: `codex/1-tele-proxy`; review: [draft PR #13](https://github.com/Kitkitkittt/tele-proxy/pull/13). **Latest recorded native deployment: source `de03dfae83d393d5173f0462fe4dd22da66368e5`, release `a73c43a7-20261029T170132Z`**, made under an explicit owner authorization after the open gate was presented; see the [deploy record](TEST_REPORT.md#2026-10-29-deploy-of-the-security-fixes-a73c43a7). The performance gate remains open. Original cutover/browser observations remain dated evidence, not new checks. No Docker image deployment is implied.
 
+## Status as of 2026-10-30
+
+The code-bearing tickets are implemented and evidenced. What remains is runtime qualification on infrastructure this host cannot currently supply, plus documentation reconciliation, which is now done.
+
+| Ticket | State | What actually remains |
+|---|---|---|
+| #2 | Inventory refreshed 2026-10-30 | The ledger records only `client_family`, not route or client version, so a protocol/version distribution cannot be produced from existing data. Sustained capacity needs a 24-hour measurement on an unpressured host. |
+| #3 | Implemented; mounted editor exercised | Nothing open. Do not re-implement. |
+| #4 | Implemented; 25-case canary | Only uncovered native-protocol transitions, per the per-ticket row below. |
+| #5 | Implemented; durable ledger | Browser/Muse physical-send boundaries remain incomplete. |
+| #6 | Implemented; bases separated | Reconcile newly covered transports only. |
+| #7 | Implemented after the SSRF and logging fixes | No open redaction path identified in this pass. |
+| #8 | Mapping proven synthetically only | **Blocked**: needs a running Langfuse stack and the Enterprise retention entitlement. |
+| #9 | Artifacts pinned, validated offline | **Blocked** on host capacity: 32 GiB free, 93% used, against a ≥10 GiB reserve + 20% free rule. |
+| #10 | Four dashboards and 15 rules exist | **Blocked** on the #9 stack for Loki/datasource proof; the missing-signal classification table is now written. |
+| #11 | 4,622 offline tests; 25/25 cases ×10 | **Blocked**: the `<10 ms` gate is 4/10 with no attributed cause; needs correlation instrumentation, then qualified storage. |
+| #12 | Docs complete; native deploy recorded | **Blocked** on #8/#9 for the backend-volume restore drill; the consolidated per-plane status block is now written. |
 ## Current objective and authority
 
 Finish the acceptance criteria in [parent #1](https://github.com/Kitkitkittt/tele-proxy/issues/1) and children #2–#12 while preserving the live routing/client contract. The earlier **planning-only** request was historical. The current user explicitly authorizes further implementation, commit and redeployment. That does not authorize unrelated DNS/client changes, storage-service deployment, credential disclosure or metered inference. This documentation correction performs none of those operations and runs no runtime checks.

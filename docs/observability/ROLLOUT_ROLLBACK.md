@@ -187,6 +187,20 @@ Immediate safe rollback: disable `TELE_PROXY_ENABLED`, restart the isolated cana
 
 Public dashboard: **https://tele-proxy.vnibb.xyz**. Client base: **https://tele-proxy.vnibb.xyz/v1**. Browser/UI verification belongs to the original cutover record; no dashboard HTTP 200 was observed for the later `da851bcf` redeploy. Existing `9router.vnibb.xyz` clients continued to the same gateway without configuration changes. Both public hosts were recorded blocking `/api/metrics`; the local endpoint requires its separate bearer token. These are dated observations, not new probes.
 
+### Per-plane status (#12)
+
+| Plane | Status | Evidence | What is still missing |
+|---|---|---|---|
+| Gateway (native systemd) | **Deployed and serving** | Release `a73c43a7-20261029T170132Z`; health 200 loopback and public; authenticated `/v1/models` 200; NRestarts=0. | None for serving. Performance gate open — see #11. |
+| Public ingress (Cloudflare tunnel) | **Live** | `cloudflared.service` active, `NRestarts=0`; local and public DNS agree; public `/api/metrics` 404. | Browser/UI check not re-run since the original cutover. |
+| State and backup | **Verified snapshot** | `data.sqlite` 688 MB, `quick_check=ok`, 303/9/7/12/1,357,997; snapshot `pre-a73c43a7-…` consistent. | Restorability of the snapshot was never exercised; model catalogs excluded. |
+| Monitoring (Prometheus/Grafana/Loki/Alloy) | **Not running** | No matching system units; artifacts digest-pinned and offline-validated. | Whole Compose qualification, Loki datasource health, alert activation. Blocked on disk headroom. |
+| Langfuse 4.0.0 | **Not running** | Config and single-exporter mapping only; synthetic OTLP sink proof. | Real ingestion, Observations-API retrieval, retention enforcement (Enterprise entitlement). |
+| Dashboards and alerts | **Authored, not activated** | 4 dashboards, 15 rules, promtool pass; 46 PromQL targets returned 200 on a native run. | Live rendering and alert firing on a running stack. Loki panel returned 400 and was never retried. |
+| Backup restore (backend volumes) | **Not rehearsed** | Native SQLite restore was rehearsed historically. | Cross-project/network/port restore of monitoring and Langfuse volumes with ledger reconciliation. |
+
+This block is the consolidated per-plane answer #12 asks for. Native SQLite rehearsal does **not** prove backend-volume restore, and none of the "not running" rows can be closed by repo-only work.
+
 Latest recorded native production paths on the deployment workstation (not re-inspected by this correction):
 
 | Purpose | Private/local path |
