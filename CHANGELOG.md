@@ -26,6 +26,8 @@
 - Repair stale offline-test transport boundaries, opt live-provider discovery in explicitly, skip absent cloud/ffmpeg prerequisites visibly, and remove the obsolete lowdb benchmark. Correction: removing the raw-key source assertion left a real disclosure undetected; the previous green suite did not qualify that security boundary.
 - Replace raw legacy usage-stat bucket names with SHA-256 identifiers after aggregation, preserving colliding-mask key separation and precise daily timestamps. Behavioral 24h/7d serialization checks replace source-text masking checks; no database credentials are deleted and no release is promoted.
 - Remove preauthorization cookie prefixes and attacker-controlled paths from Xiaomi login ingress diagnostics; use a finite feature-mode proxy-error event. Synthetic ingress regressions cover both feature modes, forged/undecodable sessions and unchanged 502 handling.
+- Suppress raw upstream error bodies/URLs and unrewritable local POST payloads from Xiaomi login proxy diagnostics in feature mode; authenticated synthetic POST/400 regressions cover both modes.
+- Key the 7d `lastUsed` overlay with the same `local-no-key|model|provider` composite the daily rollup writes, so feature-on no-key rows keep precise timestamps instead of date-only values.
 
 ## Deployment limits
 - Native systemd gateway deployed 2026-10-29 at `tele-proxy.vnibb.xyz`, preserving old-host clients and migrated authentication/combos/history under one OAuth owner. Latest recorded source `da851bcfb6ccad7ee80f2dd8d5e50badfea9686b`, release `da851bcf-20261029T082307Z`; dated acceptance and current-state rollback evidence are in `docs/observability/TEST_REPORT.md` and `ROLLOUT_ROLLBACK.md`. No client configuration changed.

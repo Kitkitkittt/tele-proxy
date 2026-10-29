@@ -604,7 +604,11 @@ export async function proxyAccountRequest(sess, req, origin) {
         headers["Content-Length"] = String(buf.length);
       } else if (/__mimo_login|localhost/.test(before)) {
         // Anomaly: a local callback shape we cannot rewrite — must never reach Xiaomi.
-        console.log(`${new Date().toISOString().slice(11, 23)} [mimo-login] body STILL local, not matchable: ${before.slice(0, 200)}`);
+        if (process.env.TELE_PROXY_ENABLED === "1") {
+          console.log("[mimo-login] body STILL local, not matchable");
+        } else {
+          console.log(`${new Date().toISOString().slice(11, 23)} [mimo-login] body STILL local, not matchable: ${before.slice(0, 200)}`);
+        }
       }
     }
     init.body = buf;
@@ -671,7 +675,14 @@ function buildBrowserResponse(sess, res, origin, reqPath = "", upstreamUrl = "")
     if (/^\/(pass|sts)/.test(reqPath) || res.status >= 400) {
       const m = body.match(/"code"\s*:\s*(-?\d+)/);
       if ((m && m[1] !== "0") || res.status >= 400) {
-        console.log(`${new Date().toISOString().slice(11,23)} [mimo-login] upstream ${reqPath} http=${res.status} code=${m ? m[1] : "?"} | url=${upstreamUrl.slice(0, 180)} | ${body.replace(/\s+/g, " ").slice(0, 160)}`);
+        const code = m ? m[1] : "?";
+        if (process.env.TELE_PROXY_ENABLED === "1") {
+          // Feature-on: body and URL carry login identifiers (callback params,
+          // sts tokens). Emit only finite scalars.
+          console.log(`[mimo-login] upstream error http=${res.status} code=${code}`);
+        } else {
+          console.log(`${new Date().toISOString().slice(11,23)} [mimo-login] upstream ${reqPath} http=${res.status} code=${code} | url=${upstreamUrl.slice(0, 180)} | ${body.replace(/\s+/g, " ").slice(0, 160)}`);
+        }
       }
     }
     const rewritten = rewriteMimoBases(body, "toProxy", origin);

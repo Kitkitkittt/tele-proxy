@@ -83,4 +83,27 @@ describe("Usage stats API key attribution", () => {
         .sort((a, b) => a - b)
     ).toEqual([10, 20]);
   });
-});
+
+  it("overlays precise lastUsed for feature-on no-key 7d rows", async () => {
+    vi.stubEnv("TELE_PROXY_ENABLED", "1");
+    vi.stubEnv("TZ", "UTC");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-29T12:00:00.000Z"));
+    const timestamp = new Date(Date.now() - 90000).toISOString();
+
+    await db.saveRequestUsage({
+      timestamp,
+      provider: "openai",
+      model: "gpt-4",
+      apiKey: null,
+      tokens: { prompt_tokens: 7, completion_tokens: 3 },
+      endpoint: "/v1/chat",
+      status: "ok",
+    });
+
+    const stats = await db.getUsageStats("7d");
+    const noKey = Object.values(stats.byApiKey).find((e) => e.apiKeyKey === "local-no-key");
+    expect(noKey).toBeDefined();
+    expect(noKey.lastUsed).toBe(timestamp);
+  });
+ });
