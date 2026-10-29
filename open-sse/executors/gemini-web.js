@@ -12,7 +12,7 @@
 // responses, not chunked streams.
 
 import { BaseExecutor } from "./base.js";
-import { assertNativePolicySupported, reportUnsupportedDispatch } from "../services/dispatchContext.js";
+import { assertNativePolicySupported } from "../services/dispatchContext.js";
 import { SSE_DONE, SSE_HEADERS_NO_BUFFER } from "../utils/sseConstants.js";
 import { isMissingBrowserExecutable, resolveSystemChromeExecutable, launchChromiumWithFallback } from "./browserExecutableCheck.js";
 import { loadRuntimeDep } from "../services/lazyRuntime.js";
@@ -33,6 +33,7 @@ import {
 } from "./gemini-web/modeSelection.js";
 import { readReplyState, waitForGeminiReply } from "./gemini-web/domCapture.js";
 import { buildImagePrompt, waitForGeminiImage } from "./gemini-web/imageGen.js";
+import { dispatchGeminiBrowserGeneration } from "./gemini-web/dispatch.js";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -588,8 +589,10 @@ export class GeminiWebExecutor extends BaseExecutor {
       await page.keyboard.insertText(prompt);
       await page.waitForTimeout(300);
       assertNativePolicySupported({ policySupported: false, transport: "browser-gemini" });
-      reportUnsupportedDispatch({ transport: "browser-gemini", reason: "generation-boundary-unavailable" });
-      await page.keyboard.press("Enter");
+      // The batchexecute POST is the generation boundary; intercept it so the
+      // ledger gets one durable attempt per real send. Replaces the previous
+      // generation-boundary-unavailable report.
+      await dispatchGeminiBrowserGeneration(page, signal, () => page.keyboard.press("Enter"));
 
       // Reply capture is DOM-based (see ./gemini-web/domCapture.js): the
       // current client streams over batchexecute rpcids that Google rotates,
@@ -777,8 +780,9 @@ export class GeminiWebExecutor extends BaseExecutor {
         await page.keyboard.insertText(buildImagePrompt(prompt, size));
         await page.waitForTimeout(300);
         assertNativePolicySupported({ policySupported: false, transport: "browser-gemini" });
-        reportUnsupportedDispatch({ transport: "browser-gemini", reason: "generation-boundary-unavailable" });
-        await page.keyboard.press("Enter");
+        // Same boundary as the text path: the image request is also a
+        // batchexecute POST.
+        await dispatchGeminiBrowserGeneration(page, signal, () => page.keyboard.press("Enter"));
         const media = await waitForGeminiImage(page, { signal });
         results.push(media);
       } finally {
