@@ -402,3 +402,15 @@ After being shown the **4/10** final-artifact gate result, the owner explicitly 
 
 Scope of the exception: promote the current branch source (security and display corrections only) to native production with a pre-deploy snapshot and reversible `current` switch. It does not authorize changing durability/PRAGMAs, dropping ledger writes, altering clients/DNS, or starting monitoring/Langfuse backends. Rollback remains the previously current release.
 
+#### Executed redeploy
+
+Source `6e8a863af6f51986988a4e8c9db2c0a0faaddb2f`; release `~/.local/share/tele-proxy/releases/6e8a863a-20261029T122006Z`, 3,598 files, artifact manifest `dfcc73c08601b4fa5c661da25a5ffd46d82305a731a5acee9dd8598cad943146`. Fresh feature-off build from a credential-free `HOME`, `postbuild` asset copy, then the standalone tree frozen into a new release directory; the running artifact was never built over.
+
+- Pre-deploy snapshot `backups/pre-6e8a863a-20261029T122006Z`: online SQLite `VACUUM INTO`, `quick_check=ok`, 303 connections / 1,352,221 usage rows / 20 tables, plus auth/JWT/machine files. Still **not** a full-state backup.
+- Pre-switch acceptance on the exact built artifact: **25/25 cases passed**, exit 0. That single concurrency-1 run also measured additional gateway p95 **+6.368 ms** (off 23.673, on 30.041). One passing run does **not** retire the 4/10 gate.
+- Switch: stopped the sole owner, repointed `current`, started. `active/running`, `NRestarts=0`. Read-only `cutover.py --check` passed: password-present/unauthenticated then authenticated `auth/status`, `/api/combos`, `/api/providers`, `/api/keys` all matching DB counts, `/api/metrics` 401 unauthenticated and 200 with bearer, 9router inactive.
+- Live `/api/health` 200 local and public; public `/api/metrics` 404; `/v1/models` authenticated 200. Live `usage/stats?period=7d` returned **22 SHA-256 bucket names, zero raw or composite keys, 8 no-key buckets** — the deployed redaction is active.
+- Rollback: previous release `da851bcf-20261029T082307Z` remains frozen; rollback was **not** re-rehearsed for this switch. Client base, DNS, credentials and durability settings were unchanged.
+
+Gates that remain open: the performance repeatability gate, monitoring/Langfuse ingestion and retention, backend-volume restore, sustained capacity, hidden/browser physical-send completeness. This redeploy closes no security or performance gate by itself.
+

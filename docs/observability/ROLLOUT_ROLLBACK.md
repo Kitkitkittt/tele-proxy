@@ -2,7 +2,7 @@
 
 **Historical scope:** sections 1–7 describe the original isolated canary; their commands do not authorize production changes. The operator-approved native deployment at `tele-proxy.vnibb.xyz` and later `da851bcf` redeploy are dated in [TEST_REPORT.md](TEST_REPORT.md#2026-10-29-redeploy-da851bcf-and-alternating-overhead-result); current release pointers are in section 8. The current user explicitly authorizes further implementation, commit and redeployment, not unrelated DNS/client/listener or backend changes. This documentation correction performs no runtime checks. Docker monitoring/Langfuse backends are not certified deployed by the gateway cutovers.
 
-**Current operational decision:** after the latest redeploy request, the user explicitly chose **hold until performance passes**, not a gate exception. Do not switch `current` or restart production for the source-only security corrections until the unchanged ten-run gate qualifies. Native `cutover.py --check` is read-only acceptance, not a deploy command. The immediate rollback target for any future switch is the release actually current before that operation (`da851bcf` at the latest preflight), not the older historical `785eeb` pointer.
+**Current operational decision:** the owner was shown the 4/10 gate, then explicitly instructed "commit and redeploy"; that is a recorded **operator exception** (see TEST_REPORT.md), not a gate pass. Release `6e8a863a-20261029T122006Z` is deployed and serving. The performance repeatability gate remains open; do not treat this promotion or the single passing post-build run as qualification. Native `cutover.py --check` is read-only acceptance, not a deploy command. The immediate rollback target for any future switch is the release actually current before that operation (`da851bcf` at the latest preflight), not the older historical `785eeb` pointer.
 
 ## 1. Prepare without starting anything
 
@@ -191,12 +191,12 @@ Latest recorded native production paths on the deployment workstation (not re-in
 
 | Purpose | Private/local path |
 |---|---|
-| Frozen current artifact | `~/.local/share/tele-proxy/current` → `releases/da851bcf-20261029T082307Z`; source `da851bcfb6ccad7ee80f2dd8d5e50badfea9686b` |
+| Frozen current artifact | `~/.local/share/tele-proxy/current` → `releases/6e8a863a-20261029T122006Z`; source `6e8a863af6f51986988a4e8c9db2c0a0faaddb2f` |
 | Current database | `~/.local/share/tele-proxy/state/db/data.sqlite` |
 | Secret environment | `~/.config/tele-proxy/production.env` (0600; never print/copy into git) |
-| Latest pre-redeploy snapshot and checksums | `~/.local/share/tele-proxy/backups/pre-da851bcf-20261029T082208Z`: online SQLite `VACUUM INTO`, integrity/checksums verified; only SQLite/auth/JWT/machine copied, **not a cold or full-state backup** |
+| Latest pre-redeploy snapshot and checksums | `~/.local/share/tele-proxy/backups/pre-6e8a863a-20261029T122006Z`: online SQLite `VACUUM INTO`, `quick_check=ok`; only SQLite/auth/JWT/machine copied, **not a cold or full-state backup** |
 | Historical initial-cutover cold snapshot | `~/.local/share/tele-proxy/backups/20261029T024947Z`; separate dated recovery point, not the redeploy backup |
-| Previous tele-proxy artifact | `~/.local/share/tele-proxy/releases/785eeb261d68-20261028T111741Z`; redeploy rollback was rehearsed in both directions and left on `da851bcf` |
+| Previous tele-proxy artifact | `~/.local/share/tele-proxy/releases/da851bcf-20261029T082307Z` — immediate rollback target for the `6e8a863a` switch (rollback not re-rehearsed for it). `785eeb261d68-20261028T111741Z` remains a separate historical point |
 | Historical legacy fallback binary | `~/.local/share/tele-proxy/rollback/9router-0.5.112/app/custom-server.js` |
 | Current-state rollback profile | `/etc/systemd/system/9router.service.d/tele-proxy-state.conf` |
 

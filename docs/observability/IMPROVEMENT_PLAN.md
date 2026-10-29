@@ -1,6 +1,6 @@
 # tele-proxy improvement and cross-machine handoff plan
 
-Planning baseline: 2026-10-28; deployment status corrected 2026-10-29. Repository: `Kitkitkittt/tele-proxy`; development branch: `codex/1-tele-proxy`; review: [draft PR #13](https://github.com/Kitkitkittt/tele-proxy/pull/13). Latest recorded native deployment: source `da851bcfb6ccad7ee80f2dd8d5e50badfea9686b`, release `da851bcf-20261029T082307Z`; see the [redeploy evidence](TEST_REPORT.md#2026-10-29-redeploy-da851bcf-and-alternating-overhead-result). The original cutover/browser observations remain dated evidence, not new checks of this release. No Docker image deployment is implied.
+Planning baseline: 2026-10-28; deployment status corrected 2026-10-29. Repository: `Kitkitkittt/tele-proxy`; development branch: `codex/1-tele-proxy`; review: [draft PR #13](https://github.com/Kitkitkittt/tele-proxy/pull/13). Latest recorded native deployment: source `6e8a863af6f51986988a4e8c9db2c0a0faaddb2f`, release `6e8a863a-20261029T122006Z`, promoted under an explicit operator exception with the performance gate still open; see the [redeploy evidence](TEST_REPORT.md#2026-10-29-operator-approved-redeploy-despite-performance-gate). Previous `da851bcf-20261029T082307Z` remains the rollback target. The original cutover/browser observations remain dated evidence, not new checks of this release. No Docker image deployment is implied.
 
 ## Current objective and authority
 
