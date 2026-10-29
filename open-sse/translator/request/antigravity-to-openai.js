@@ -91,14 +91,12 @@ function normalizeSchemaTypes(schema) {
 
   const result = Array.isArray(schema) ? [...schema] : { ...schema };
 
-
   if (typeof result.type === "string") {
     result.type = result.type.toLowerCase();
   }
 
   // Strip enumDescriptions — not supported by upstream APIs
   delete result.enumDescriptions;
-
 
   if (result.properties) {
     const normalized = {};

@@ -26,6 +26,9 @@ export function detectFormatByEndpoint(pathname, body) {
   // /v1/messages is always Claude
   if (pathname.includes("/v1/messages")) return FORMATS.CLAUDE;
 
+  // Native Gemini endpoints remain Gemini even when untrusted body fields resemble another API.
+  if (pathname.includes("/v1beta/models/")) return FORMATS.GEMINI;
+
   // /v1/chat/completions + input[] → treat as openai (Cursor CLI sends Responses body via chat endpoint)
   if (pathname.includes("/v1/chat/completions") && Array.isArray(body?.input)) {
     return FORMATS.OPENAI;

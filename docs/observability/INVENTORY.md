@@ -1,6 +1,81 @@
 # Inventory
 
-Observed 2026-10-27. This is a bounded implementation inventory, not a security audit.
+Read-only host snapshot began **2026-10-29 03:54:03 UTC**; version, resolver and advisory queries followed in the same inventory session. Historical 2026-10-27–28 observations are retained below, not presented as current deployment facts. This is a bounded inventory, not a security audit, capacity qualification or release acceptance. No service restart, inference, credential read, database open/copy, DNS change or state mutation was performed for this refresh.
+
+## Current checkout versus deployed artifact
+
+| Item | Observed fact / evidence boundary |
+|---|---|
+| Checkout | `/home/vphk2001/tele-proxy`, branch `codex/1-tele-proxy`, HEAD `0983387103ecceadeb1b96d3fe038d837a1d243c` (`docs: plan remaining tele-proxy acceptance work`). Origin <https://github.com/Kitkitkittt/tele-proxy>; upstream <https://github.com/decolua/9router>. |
+| Upstream lineage | Local `upstream/master` remains pinned to `3a978a631ad65529c06e48ce495092d5bba29f46`, 9Router `0.5.111`. No fetch/rebase/upgrade performed during this refresh. |
+| Dirty state | Shared implementation in progress, not a frozen release. At 03:54 UTC: modified `docs/observability/{ACCOUNTING,PRIVACY}.md`, `open-sse/executors/chatgpt-web/{chatHttp,imageGenHttp}.js`, `ops/observability/grafana/dashboards/infrastructure-telemetry.json`, `ops/observability/langfuse/compose.yaml`, `ops/observability/runbooks.md`, `src/lib/{gatewayTelemetry,privacyDiagnostics,teleProxy}.js`. This list predates this inventory/evidence edit and other concurrent work; none was reset/discarded. |
+| Toolchain | Linux `7.0.0-38-generic`, x86_64; Node `v24.20.0`, npm `11.19.0`. Root `package-lock.json` is tracked; `tests/package-lock.json` is not tracked. `.nvmrc` pins a different development runtime (`22.23.4`, documented in the roadmap); do not confuse it with the running Node. |
+| Installed clients | `pi --version`: `0.86.1`; `omp --version`: `18.13.3`; `codex --version`: `0.159.2`; `opencode --version`: `1.18.35`; `claude --version`: `2.1.259`. Versions alone do not establish which client/protocol is active. No client configuration or payloads were read. |
+| Running gateway | `tele-proxy.service` active/running/enabled, `NRestarts=0`. Its process executable resolves to `/usr/local/bin/node`; working directory and `current` symlink resolve to private release `~/.local/share/tele-proxy/releases/785eeb261d68-20261028T111741Z`. |
+| Deployed source/artifact | The deployment record pins source `785eeb261d688bf5071f13c700e153b3f93497b2`, inherited version `0.5.111`, native `node:sqlite`, and standalone hash-map SHA-256 `3ed44a49459f71924b3ccb779d55cc19e93b2d89f3fc5eb33e138f64ca57c080`. This refresh observed the matching release path, **did not rehash the artifact or query its live schema/driver**. No Docker gateway image/digest applies to this native deployment. |
+| Previous binary | Global npm metadata reports installed `9router@0.5.112`, not `0.5.111`. Installed package, upstream source and active frozen tele-proxy are separate identities. `9router.service` and `omniroute.service` are inactive/dead/disabled, PID zero. |
+
+Commands were limited to `git rev-parse/branch/status/show/remote/ls-files`, version queries, `systemctl show`, `ss`, `readlink`, `stat`, `du`, `lscpu`, `free`, `df`, `getent`, `dig`, and public GitHub advisory metadata. No process arguments, environment, unit contents, SSH keys, credential files, database rows or request captures were printed. Existing test/build commands and historical outcomes are in [TEST_REPORT.md](TEST_REPORT.md); no test, build, validator or inference was run for this documentation slice.
+
+## Current topology and bounded capacity
+
+| Item | Observation | Gap / implication |
+|---|---|---|
+| Gateway ownership | Only `127.0.0.1:20128` listens among gateway/monitoring candidate ports; 20129, 20280/20281, 3000, 3100, 4317/4318, 9090 and 12345 had no listener at inspection. | Port availability is transient. Loopback is deliberate; former direct-LAN connectivity is not preserved by a public-hostname compatibility check. No interface/firewall change authorized here. |
+| Ingress | `cloudflared.service` active/running, `NRestarts=0`, memory 28,631,040 bytes. | Prior verified public TLS/auth and metrics blocking remain dated deployment evidence, not re-exercised here. Tunnel credentials/configuration were not read. |
+| Resolver | Local `getent ahostsv4 tele-proxy.vnibb.xyz` now succeeds; public `dig @1.1.1.1` returns the same two A records. Addresses omitted. | The earlier local NXDOMAIN is historical and was not reproduced now. DNS agreement does not establish HTTPS, authentication, browser UI or origin health. No resolver flush/configuration change performed. |
+| Gateway state | Dedicated `~/.local/share/tele-proxy/state` mode `0700`; `db/data.sqlite` mode `0600`, 636,780,544 bytes; whole state directory approximately 615 MiB by `du`. | Metadata only; SQLite was not opened. Counts/schema/integrity/retention execution and recoverable backup age are not freshly established. Production traffic can change size immediately. |
+| Gateway resource snapshot | Service memory 697,896,960 bytes; cumulative CPU 431,815,054,000 ns. Intel Core i5-6300HQ @2.30 GHz, 4 cores/4 logical CPUs. | These are not peak usage, CPU rate, load-test or idle-host measurements. |
+| Host memory/storage snapshot | RAM 25,072,115,712 bytes total, 14,086,529,024 available; swap 6,583,803,904 used. Root filesystem 501,809,635,328 bytes total, 45,352,763,392 available, 91% used. | No sustained RAM/CPU/disk reserve or 24-hour bytes/request growth measured. Disk pressure remains material; no new telemetry stores qualified on this host. |
+| Monitoring services | Conventional `prometheus`, `grafana-server`, `loki`, `alloy`, `langfuse`, `tempo` system units are not found. Exact-name process queries found no Prometheus/Grafana/Loki/Alloy/Tempo process. | This is bounded local coverage, not proof of absence in Docker, custom units, other hosts or processes with different names. Historical native proof processes were stopped. |
+| Docker | Unprivileged client `29.1.3` exists; user config and daemon socket access denied. Integration owner subsequently observed `sudo -n docker info` succeed, reporting Docker `29.1.3`, `x86_64`. No containers started. | Docker is accessible through the observed noninteractive sudo route; unprivileged denial is not a host-access blocker. Container/image/volume health, full Compose runtime/restore and sustained capacity remain unqualified. No group/permission change is implied. |
+| Other authorized hosts | SSH capability reports no configured hosts; `~/.ssh/config` is absent. | Application/CI ARM hosts and existing shared monitoring/reservations remain unverified; no host identity/access route is supplied by this repository. Do not presume VniBB/Jenkins or GPU hosts idle, allocate their capacity, or invent remote host facts. |
+
+## Fork-specific implementation map
+
+These are **checkout source references**, not proof the dirty checkout is deployed. Dynamic provider transports still need final-wire evidence; implemented protocols do not establish actual client traffic distribution.
+
+| Boundary | Source evidence |
+|---|---|
+| Rewrites and protocol ingress | `next.config.mjs:65-102`; `src/app/api/v1/{chat/completions,responses,messages}/route.js`; Gemini `src/app/api/v1beta/models/[...path]/route.js:40-112`. Image/audio/embedding/video/search/fetch routes are separate families under `src/app/api/v1/`. |
+| Authenticated dispatch | `src/sse/handlers/chat.js:38-105,149-170,245-266,289-328`; format/executor selection `open-sse/handlers/chatCore.js:178-221,342-360`. |
+| Combo/history/editor | `src/lib/db/repos/combosRepo.js:17-71`; `src/app/api/combos/**`; authenticated policy history/write route `src/app/api/combos/[id]/policy/route.js:10-45`; immutable save/rollback `src/lib/comboPolicy.js:87-139`; mounted editor `src/app/(dashboard)/dashboard/combos/page.js:1349-1350`. |
+| Snapshotted additive policy | `src/lib/teleProxy.js` ingress snapshot/application; post-compression application `open-sse/handlers/chatCore.js:317-340`; native fields `open-sse/services/comboPolicy.js:86-145`; required eligibility `open-sse/services/policyEligibility.js:67-95`. Default injection cap is 600 **estimated** tokens, configurable rather than an unconditional hard-coded maximum. |
+| Prices and accounting | `src/lib/requestLedger.js` usage normalization, immutable tariff snapshots, integer micro-units, fixed fees and recovery; inherited editable reference prices remain separate in `src/lib/db/repos/pricingRepo.js` and `src/app/api/pricing/route.js`. A combo alias is not an actual tariff identity. |
+| Finalization | `src/lib/teleProxy.js` upstream observer and downstream completion/cancellation; `src/lib/requestLedger.js:149-214`; inherited `open-sse/handlers/chatCore/{streamingHandler,nonStreamingHandler,sseToJsonHandler}.js` and `open-sse/utils/stream.js`. Legacy estimated/default usage is not ledger-reported usage. |
+| Retry/fallback/cancel | `open-sse/executors/base.js:102-181`; `open-sse/services/dispatchContext.js:34-86`; proxy TLS/direct retry `open-sse/utils/proxyFetch.js:255-271,363-391`; account fallback `src/sse/handlers/chat.js:373-390`; combo stream peek `open-sse/services/combo.js:475-623`. Chat signals combine at `open-sse/handlers/chatCore.js:353-360`; native Gemini adapter cancellation needs its own wire proof, not inference from chat coverage. |
+| Auth and privacy | `src/lib/auth/dashboardSession.js:33-72`; `src/sse/services/keyAccess.js:48-73,123-155`; socket/proxy trust `custom-server.js`, `src/dashboardGuard.js`; legacy request-detail suppression `src/lib/db/repos/requestDetailsRepo.js:143-146`; bounded project diagnostics `src/lib/privacyDiagnostics.js`. No arbitrary-content redaction safety claim follows from metadata capture. |
+| Data/adapter boundary | `src/lib/dataDir.js:14-21` requires isolated absolute feature-mode state; `src/lib/db/paths.js:5-12`; adapter selection `src/lib/db/driver.js:88-95`. Production schema and adapter were not introspected during this read-only refresh. |
+
+## Refreshed advisory scope
+
+`gh api repos/decolua/9router/security-advisories --paginate` returned **19 published advisories** on 2026-10-29. The eight historical entries below remain relevant review boundaries. Additional published entries omitted from that older shortlist:
+
+| Advisory | Boundary | Published affected / patched metadata |
+|---|---|---|
+| [GHSA-32gc-64m7-hj7v](https://github.com/decolua/9router/security/advisories/GHSA-32gc-64m7-hj7v) | Spoofed internal-IP login lockout bypass | `0.5.4` / malformed `5.6` |
+| [GHSA-8g4w-4ffg-8vgx](https://github.com/decolua/9router/security/advisories/GHSA-8g4w-4ffg-8vgx) | Authenticated OIDC test SSRF | `<=0.5.4` / malformed `5.6` |
+| [GHSA-6mwv-4mrm-5p3m](https://github.com/decolua/9router/security/advisories/GHSA-6mwv-4mrm-5p3m) | Kiro region SSRF/auth forwarding | `<=0.5.2` / `0.5.6` |
+| [GHSA-86m2-fcxq-5q7c](https://github.com/decolua/9router/security/advisories/GHSA-86m2-fcxq-5q7c) | Host-header relay/SSRF | `<=0.4.80` / `0.4.82` |
+| [GHSA-8gmq-j984-vp4r](https://github.com/decolua/9router/security/advisories/GHSA-8gmq-j984-vp4r) | `/codex` rewrite authorization bypass | `<=0.4.80` / `0.4.82` |
+| [GHSA-qj3v-64wj-q825](https://github.com/decolua/9router/security/advisories/GHSA-qj3v-64wj-q825) | Web-fetch SSRF | `<=0.4.71` / `0.4.72` |
+| [GHSA-7cfm-pqrj-xgq7](https://github.com/decolua/9router/security/advisories/GHSA-7cfm-pqrj-xgq7) | Forwarded-IP login lockout bypass | `<=0.4.71` / `>=0.4.77` |
+| [GHSA-4922-8r65-fq26](https://github.com/decolua/9router/security/advisories/GHSA-4922-8r65-fq26) | Host/MCP argument RCE | `0.4.59` / `0.4.60` |
+| [GHSA-6g2f-w7g3-77vf](https://github.com/decolua/9router/security/advisories/GHSA-6g2f-w7g3-77vf) | Incomplete local-only Host fix | `<=0.4.55` / empty |
+| [GHSA-g6g7-pvmx-m74p](https://github.com/decolua/9router/security/advisories/GHSA-g6g7-pvmx-m74p) | Missing auth/OS command injection | `<=0.4.39` / `0.4.44` |
+| [GHSA-fhh6-4qxv-rpqj](https://github.com/decolua/9router/security/advisories/GHSA-fhh6-4qxv-rpqj) | Unprotected MCP plugin RCE | `>=0.4.30,<0.4.37` / `0.4.37` |
+
+The pinned `0.5.111` lies beyond the explicitly stated older affected versions; malformed/empty patch metadata is not silently repaired and does not prove safety. No dependency audit, exploit replay or full source/security audit was run. Historical authentication regression results remain evidence only for their exercised boundaries.
+
+## Source schema and price pins
+
+Source schema pins are distinct: `src/lib/db/schema.js:1-6` declares central `SCHEMA_VERSION=2`; additive ledger migration `src/lib/db/migrations/2026102702-request-ledger.js:1-7` is `2026102702`; `src/lib/requestLedger.js:46-61` separately stamps `teleProxyLedgerSchemaVersion='1'`. None is a freshly observed production DB value. Legacy default rates (`open-sse/providers/pricing.js`, `MODEL_PRICING`/`PROVIDER_PRICING`) merge with `kv(scope='pricing')` overrides; evidence-backed immutable `teleProxyTariffs` are separate. Shipped reference prices are not actual contract spend.
+
+## Unverified inventory fields
+
+Actual enabled combo aliases/reasoning-suffix distribution, active client protocol/version distribution, authenticated project/session configuration, production tariff/budget/quota evidence and current backup age were not queried because this slice excludes production state and request inspection. Dated deployment evidence established **12 combos**, not their present names/configuration. Do not substitute the parent issue's example aliases (`quality`, `balanced`, `fast`, `cheap`, `free`, `vision`) for an observed current list. Remote ARM host identities/access, existing shared monitoring and sustained service reservations are not available through configured SSH capabilities. Unprivileged Docker visibility is denied, but the integration owner's `sudo -n docker info` succeeded; container/runtime qualification is still unperformed. These gaps are explicit inputs for authorized inventory/qualification, not claims that those resources or configurations do not exist.
+
+## Historical implementation baseline — 2026-10-27–28
 
 ## Lineage and tooling
 

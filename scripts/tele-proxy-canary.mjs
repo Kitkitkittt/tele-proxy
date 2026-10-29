@@ -308,10 +308,11 @@ async function runFixture(mode, comboId) {
   console.log(JSON.stringify({ fixture: mode, passed: true }));
 }
 
-export async function runCanary({ samples = 40, concurrency = 2, runtime = 'development' } = {}) {
+export async function runCanary({ samples = 40, concurrency = 2, runtime = 'development', benchmarkOrder = 'off-on' } = {}) {
   assert.ok(Number.isInteger(samples) && samples >= 10 && samples <= 40, 'samples 10..40 (bounded recent ledger acceptance window)');
   assert.ok(Number.isInteger(concurrency) && concurrency >= 1 && concurrency <= 16, 'concurrency 1..16');
   assert.ok(['development', 'production'].includes(runtime), 'runtime must be development or production');
+  assert.ok(['off-on', 'on-off'].includes(benchmarkOrder), 'benchmarkOrder must be off-on or on-off');
   const temp = await mkdtemp(resolve(tmpdir(), 'tele-proxy-canary-'));
   const password = randomBytes(24).toString('hex'), logs = [], cases = [];
   const env = { ...process.env };
@@ -324,18 +325,30 @@ export async function runCanary({ samples = 40, concurrency = 2, runtime = 'deve
     await new Promise((ok, fail) => { portProbe.once('error', fail); portProbe.listen(20280, '127.0.0.1', ok); });
     await new Promise(r => portProbe.close(r));
     mock = await createMockProvider();
-    child = await startNext(env, logs, runtime);
-    let admin = await adminClient(password);
-    const baselineSeed = await seed(admin, false);
-    const baseline = await benchmark(baselineSeed.key.key, samples, concurrency, mock);
-    await stop(child); child = null;
-    env.DATA_DIR = resolve(temp, 'enabled'); env.TELE_PROXY_ENABLED = '1';
-    // One metadata export stream to a synthetic local OTLP consumer, not a Langfuse deployment.
-    env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = `${mockBase}/v1/traces`;
-    env.OTEL_EXPORTER_OTLP_ENDPOINT = mockBase;
-    child = await startNext(env, logs, runtime); admin = await adminClient(password);
+    const baselineEnv = { ...env };
+    const enabledEnv = { ...env, DATA_DIR: resolve(temp, 'enabled'), TELE_PROXY_ENABLED: '1', OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: `${mockBase}/v1/traces`, OTEL_EXPORTER_OTLP_ENDPOINT: mockBase };
+    async function measureMode(enabled) {
+      const modeEnv = { ...(enabled ? enabledEnv : baselineEnv), DATA_DIR: resolve(temp, enabled ? 'benchmark-enabled' : 'benchmark-baseline') };
+      child = await startNext(modeEnv, logs, runtime);
+      const benchmarkAdmin = await adminClient(password);
+      const benchmarkSeed = await seed(benchmarkAdmin, enabled);
+      const result = await benchmark(benchmarkSeed.key.key, samples, concurrency, mock);
+      await stop(child); child = null;
+      return result;
+    }
+    let baseline, enabled;
+    if (benchmarkOrder === 'off-on') {
+      baseline = await measureMode(false);
+      enabled = await measureMode(true);
+    } else {
+      enabled = await measureMode(true);
+      baseline = await measureMode(false);
+    }
+    Object.assign(env, enabledEnv);
+    child = await startNext(env, logs, runtime); let admin = await adminClient(password);
     const seeded = await seed(admin, true), key = seeded.key.key;
     const enabledCaptureStart = mock.captures.length;
+    const enabledExportStart = mock.exports.length;
     async function exercise(name, patch = {}, headers = {}, enabled = true) {
       const before = mock.captures.length;
       const response = await send(key, name, patch, headers);
@@ -412,9 +425,9 @@ export async function runCanary({ samples = 40, concurrency = 2, runtime = 'deve
         cases.push({ name: `${media.kind}-${mode}-native-route`, passed: true, dispatches: mode === 'off' ? 1 : 0 });
       }
     }
-    await waitFor(() => mock.exports.length > 0, 'OTLP consumer batches', 15000);
+    await waitFor(() => mock.exports.length > enabledExportStart, 'OTLP consumer batches', 15000);
     await sleep(1500);
-    const mapping = assertAttemptMapping(mock.exports);
+    const mapping = assertAttemptMapping(mock.exports.slice(enabledExportStart));
     cases.push({ name: 'otlp-generation-mapping-not-langfuse-backend', passed: true, ...mapping });
     const unauthMetrics = await fetch(`${base}/api/metrics`); assert.ok([401, 403].includes(unauthMetrics.status));
     const beforeOutage = mock.captures.length;
@@ -426,7 +439,6 @@ export async function runCanary({ samples = 40, concurrency = 2, runtime = 'deve
     const queues = metricValues(outageMetrics, 'nine_router_export_queue_size');
     assert.ok(queues.length > 0 && queues.every(v => Number.isFinite(v) && v <= 8), 'export queue bounded');
     mock.setCollectorAvailable(true);
-    const enabled = await benchmark(key, samples, concurrency, mock);
     await sleep(1500);
     let ledger = await ledgerSnapshot(admin);
     assert.ok(ledger.requests > 0); assert.equal(ledger.attempts, mock.captures.length - enabledCaptureStart, 'actual enabled physical attempts reconcile');
@@ -473,7 +485,7 @@ export async function runCanary({ samples = 40, concurrency = 2, runtime = 'deve
     for (const item of mock.exports) assertNoSecrets(item.body.toString(), [SECRET_FIXTURE, key, 'SYNTHETIC_UPSTREAM_SECRET_a7c21', POLICY_TEXT]);
     cases.push({ name: 'metadata-privacy-fixture', passed: true });
     const extraP95Ms = enabled.gatewayP95EstimateMs - baseline.gatewayP95EstimateMs;
-    return { schemaVersion: 1, actualGateway: runtime === 'production' ? 'Next standalone custom-server actual /v1 ingress' : 'Next dev --webpack actual /v1 ingress', cases, benchmark: { baseline, enabled, additionalP95EstimateMs: extraP95Ms, targetMs: 10, targetMet: extraP95Ms < 10, caveat: `${runtime} runtime; controlled local estimate, not production SLA.` }, hardware: { platform: platform(), architecture: arch(), cpu: cpus()[0]?.model, logicalCpus: cpus().length, memoryBytes: totalmem(), node: process.version }, ledger: { requests: ledger.requests, attempts: ledger.attempts, coverage: ledger.coverage, totals: ledger.totals }, transport: { receivedBatches: mock.exports.length, contentTypes: [...new Set(mock.exports.map(e => e.type))] }, untested: ['Real Langfuse generation ingestion: no Langfuse backend started.', 'Live providers, production cutover, DNS and ingress unchanged.'] };
+    return { schemaVersion: 1, actualGateway: runtime === 'production' ? 'Next standalone custom-server actual /v1 ingress' : 'Next dev --webpack actual /v1 ingress', cases, benchmark: { order: benchmarkOrder.split('-'), baseline, enabled, additionalP95EstimateMs: extraP95Ms, targetMs: 10, targetMet: extraP95Ms < 10, caveat: `${runtime} runtime; controlled local estimate, not production SLA.` }, hardware: { platform: platform(), architecture: arch(), cpu: cpus()[0]?.model, logicalCpus: cpus().length, memoryBytes: totalmem(), node: process.version }, ledger: { requests: ledger.requests, attempts: ledger.attempts, coverage: ledger.coverage, totals: ledger.totals }, transport: { receivedBatches: mock.exports.length, contentTypes: [...new Set(mock.exports.map(e => e.type))] }, untested: ['Real Langfuse generation ingestion: no Langfuse backend started.', 'Live providers, production cutover, DNS and ingress unchanged.'] };
   } catch (error) {
     const syntheticKeys = mock ? mock.captures.flatMap(c => [c.body?.apiKey]) : [];
     error.message = `${error.message}; Next diagnostics: ${JSON.stringify(safeDiagnostics(logs, [password, SECRET_FIXTURE, 'SYNTHETIC_UPSTREAM_SECRET_a7c21', POLICY_TEXT, ...syntheticKeys]))}`;
@@ -491,6 +503,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     await runFixture(mode, comboId);
     process.exit(0);
   }
-  const options = Object.fromEntries(process.argv.slice(2).map(arg => { const [key, value] = arg.replace(/^--/, '').split('='); assert.ok(['samples', 'concurrency', 'runtime'].includes(key), `Unknown option ${key}`); return [key, key === 'runtime' ? value : Number(value)]; }));
+  const options = Object.fromEntries(process.argv.slice(2).map(arg => { const [key, value] = arg.replace(/^--/, '').split('='); assert.ok(['samples', 'concurrency', 'runtime', 'benchmark-order'].includes(key), `Unknown option ${key}`); return [key === 'benchmark-order' ? 'benchmarkOrder' : key, ['runtime', 'benchmark-order'].includes(key) ? value : Number(value)]; }));
   runCanary(options).then(result => { console.log(JSON.stringify(result)); if (!result.benchmark.targetMet) process.exitCode = 2; }).catch(error => { console.error(JSON.stringify({ passed: false, error: error.message })); process.exitCode = 1; });
 }

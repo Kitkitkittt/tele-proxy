@@ -63,12 +63,14 @@ export function openaiToAntigravityResponse(chunk, state) {
     const indices = Object.keys(state._toolCallAccum);
     for (const idx of indices) {
       const accum = state._toolCallAccum[idx];
-      let args = {};
-      try { args = JSON.parse(accum.arguments); } catch { /* empty */ }
+      let args;
+      try { args = JSON.parse(accum.arguments); }
+      catch { throw new Error("Upstream returned invalid tool arguments"); }
       // Restore original tool name if it was prefixed during cloaking
       const originalName = state.toolNameMap?.get(accum.name) || accum.name;
       parts.push({
         functionCall: {
+          ...(accum.id ? { id: accum.id } : {}),
           name: originalName,
           args
         }

@@ -99,6 +99,7 @@ function parseEvents(text) {
     .filter(Boolean);
 }
 
+
 // Index of the event announcing/finishing an output item of the given type.
 function itemEventIndex(events, eventType, itemType) {
   return events.findIndex((e) => e.type === eventType && e.item?.type === itemType);

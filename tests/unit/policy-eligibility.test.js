@@ -73,6 +73,55 @@ describe("required-policy eligibility", () => {
     expect(() => required(() => gate(claude, "claude", "openai"))).toThrow("cache protocol");
   });
 
+  it("rejects native Gemini controls and mixed tool results before a lossy cross-protocol send", () => {
+    const original = { contents: [{ role: "user", parts: [{ text: "hello" }] }] };
+    for (const patch of [
+      { generationConfig: { responseSchema: { type: "OBJECT" } } },
+      { generationConfig: { responseJsonSchema: { type: "object" } } },
+      { generationConfig: { thinkingConfig: { thinkingBudget: 32 } } },
+      { toolConfig: { functionCallingConfig: { mode: "ANY" } } },
+      { sessionId: "native-session" },
+      { safetySettings: [{ category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" }] },
+      { generationConfig: { stopSequences: ["STOP"], seed: 7 } },
+      { tools: [{ googleSearch: {} }] },
+      { tools: [{ functionDeclarations: [{ name: "inspect", parametersJsonSchema: { type: "object" } }] }] },
+      { contents: [{ role: "model", parts: [{ text: "thinking", thoughtSignature: "signature" }] }] },
+      { contents: [{ role: "user", parts: [{ functionResponse: { name: "inspect", response: {} } }, { text: "retain this" }] }] },
+      { contents: [{ role: "user", parts: [{ functionResponse: { name: "inspect", response: { result: "value", metadata: "retain this" } } }] }] },
+    ]) {
+      const body = { ...original, ...patch };
+      expect(() => required(() => gate(body, "gemini", "openai"))).toThrow(expect.objectContaining({ code: "COMBO_POLICY_REQUIRED", status: 422 }));
+      expect(() => required(() => gate(body, "gemini", "gemini"))).not.toThrow();
+    }
+  });
+
+  it.each([
+    ["reasoning classification", { role: "model", parts: [{ thought: true, text: "synthetic reasoning" }] }, "Gemini reasoning continuity"],
+    ["tool-result attachment", { role: "user", parts: [{ functionResponse: { name: "inspect", response: { status: "ok" }, parts: [{ inlineData: { mimeType: "image/png", data: "synthetic" } }] } }] }, "Gemini tool result protocol"],
+  ])("prevents cross-protocol dispatch that loses Gemini %s", (_label, content, reason) => {
+    PROVIDER_CAPABILITIES[provider] = { [model]: { vision: true, tools: true } };
+    const body = { contents: [content] };
+    const original = structuredClone(body);
+    const send = vi.fn();
+    expect(() => required(() => { gate(body, "gemini", "openai"); send(); })).toThrow(reason);
+    expect(send).not.toHaveBeenCalled();
+    expect(() => required(() => gate(body, "gemini", "gemini"))).not.toThrow();
+    expect(body).toEqual(original);
+  });
+
+  it("rejects Gemini media parts that its cross-protocol bridge cannot preserve", () => {
+    PROVIDER_CAPABILITIES[provider] = { [model]: { vision: true, audioInput: true } };
+    for (const parts of [
+      [{ fileData: { mimeType: "image/png", fileUri: "gs://synthetic/image" } }],
+      [{ inlineData: { mimeType: "audio/wav", data: "synthetic" } }],
+      [{ inlineData: { mimeType: "image/png", data: "synthetic" } }, { functionCall: { id: "call-1", name: "inspect", args: {} } }],
+    ]) {
+      const body = { contents: [{ role: "model", parts }] };
+      expect(() => required(() => gate(body, "gemini", "openai"))).toThrow("Gemini multipart protocol");
+      expect(() => required(() => gate(body, "gemini", "gemini"))).not.toThrow();
+    }
+  });
+
   it.each(["passthrough", "prepared"])("preserves client Claude cache controls at the %s wire boundary", async (path) => {
     const body = {
       system: [{ type: "text", text: "system", cache_control: { type: "ephemeral" } }],

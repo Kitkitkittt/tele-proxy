@@ -167,6 +167,22 @@ describe("cline free-models envelope in nonStreamingHandler", () => {
     });
     expect(body.usage.prompt_tokens).toBe(2005);
   });
+  it("keeps OpenAI-shaped usage when the client source format is Gemini", async () => {
+    const providerResponse = new Response(JSON.stringify({
+      choices: [{ message: { content: "Hi" } }],
+      usage: { prompt_tokens: 11, completion_tokens: 3, total_tokens: 14 },
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+    const result = await handleNonStreamingResponse({
+      providerResponse, provider: "test", model: "test-model",
+      sourceFormat: "gemini", targetFormat: "openai",
+      body: { stream: false }, stream: false, translatedBody: null, finalBody: null,
+      requestStartTime: Date.now(), connectionId: "c1", apiKey: "k", clientRawRequest: null,
+      onRequestSuccess: () => {}, reqLogger: stubLogger(), toolNameMap: null, customToolNames: null,
+      trackDone: () => {}, appendLog: () => {}, pxpipe: null, reqTag: "t", log: null,
+    });
+    const body = await result.response.json();
+    expect(body.usage).toMatchObject({ prompt_tokens: 2011, completion_tokens: 3, total_tokens: 2014 });
+  });
 
   it("passes a bare (non-enveloped) body through unchanged", async () => {
     const providerResponse = new Response(

@@ -38,9 +38,15 @@ export function normalizeUsage(usage, format = "openai") {
     reasoning = integer(u.thoughtsTokenCount); output = integer(u.candidatesTokenCount);
     if (output !== null) output = integer(output + (reasoning ?? 0));
   }
+  // A present but invalid subset cannot be priced as though that subset were zero.
+  const invalidSubset = [
+    u.input_tokens_details?.cached_tokens, u.prompt_tokens_details?.cached_tokens,
+    u.cache_read_input_tokens, u.cache_creation_input_tokens, u.cachedContentTokenCount,
+    u.output_tokens_details?.reasoning_tokens, u.completion_tokens_details?.reasoning_tokens, u.thoughtsTokenCount,
+  ].some(value => value !== undefined && integer(value) === null);
   if (input !== null && (cached ?? 0) + (writes ?? 0) > input) input = null;
   if (output !== null && (reasoning ?? 0) > output) output = null;
-  return { inputTokens: input, outputTokens: output, cachedInputTokens: cached, cacheWriteTokens: writes, reasoningTokens: reasoning, usageSource: input !== null && output !== null ? u.estimated === true || u.source === "estimated" ? "estimated" : "reported" : "unknown", allowlistedRawUsage: raw };
+  return { inputTokens: input, outputTokens: output, cachedInputTokens: cached, cacheWriteTokens: writes, reasoningTokens: reasoning, usageSource: !invalidSubset && input !== null && output !== null ? u.estimated === true || u.source === "estimated" ? "estimated" : "reported" : "unknown", allowlistedRawUsage: raw };
 }
 
 async function database() {

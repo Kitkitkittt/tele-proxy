@@ -145,7 +145,8 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   const preTranslateRtkLine = formatRtkLog(preTranslateRtk);
   if (preTranslateRtkLine) console.log(preTranslateRtkLine);
 
-  const clientRequestedStreaming = body.stream === true || sourceFormat === FORMATS.ANTIGRAVITY || sourceFormat === FORMATS.GEMINI || sourceFormat === FORMATS.GEMINI_CLI;
+  const clientRequestedStreaming = body.stream === true || (body.stream !== false
+    && [FORMATS.ANTIGRAVITY, FORMATS.GEMINI, FORMATS.GEMINI_CLI].includes(sourceFormat));
   const providerRequiresStreaming = PROVIDERS[provider]?.forceStream === true;
   let stream = providerRequiresStreaming ? true : (body.stream !== false);
 
@@ -244,6 +245,11 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   // Token savers: applied at the final body just before dispatch
   // Covers both passthrough (source shape) and translated (target shape) flows
   const finalFormat = passthrough ? sourceFormat : targetFormat;
+  // Gemini selects streaming in the URL, not GenerateContentRequest JSON.
+  if (finalFormat === FORMATS.GEMINI && Object.hasOwn(translatedBody, "stream")) {
+    translatedBody = { ...translatedBody };
+    delete translatedBody.stream;
+  }
 
   // Request line: one correlated summary (fmt + thinking + counts + account)
   if (log?.line) {

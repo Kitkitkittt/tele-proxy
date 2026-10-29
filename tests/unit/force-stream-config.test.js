@@ -156,4 +156,18 @@ describe("forceStream provider config", { timeout: 20_000 }, () => {
     expect(executeMock).toHaveBeenCalledTimes(1);
     expect(executeMock.mock.calls[0][0].stream).toBe(true);
   });
+
+  it.each([false, true])("keeps Gemini stream=%s in routing but out of its wire body", async (stream) => {
+    const { handleChatCore } = await import("../../open-sse/handlers/chatCore.js");
+    const options = makeOptions(stream);
+    options.body = { model: "gemini-2.5-flash", stream, contents: [{ parts: [{ text: "hello" }] }] };
+    options.modelInfo = { provider: "gemini", model: "gemini-2.5-flash" };
+    options.sourceFormatOverride = "gemini";
+    options.clientRawRequest.body = options.body;
+    await handleChatCore(options);
+    expect(executeMock).toHaveBeenCalledTimes(1);
+    expect(executeMock.mock.calls[0][0].stream).toBe(stream);
+    expect(executeMock.mock.calls[0][0].body).not.toHaveProperty("stream");
+    expect(options.body.stream).toBe(stream);
+  });
 });

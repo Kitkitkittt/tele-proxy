@@ -89,7 +89,35 @@ export function assertPolicyEligibility(body, provider, model, sourceFormat, tar
     if (!CORE_FORMATS.has(sourceFormat) || !CORE_FORMATS.has(targetFormat)) {
       throw requiredPolicyUnsupported("protocol", true);
     }
-    if (body?.response_format || body?.text?.format) throw requiredPolicyUnsupported("response schema protocol");
+    if (body?.response_format || body?.text?.format || body?.generationConfig?.responseSchema
+      || body?.generationConfig?.responseJsonSchema || body?.generationConfig?.responseMimeType) {
+      throw requiredPolicyUnsupported("response schema protocol");
+    }
+    if (sourceFormat === FORMATS.GEMINI) {
+      // The Gemini-to-OpenAI bridge cannot carry these native controls/continuity fields.
+      if (body.toolConfig || body.safetySettings || body.sessionId
+        || Object.keys(body.generationConfig || {}).some(key => !["maxOutputTokens", "temperature", "topP"].includes(key))) {
+        throw requiredPolicyUnsupported("Gemini controls protocol");
+      }
+      if (body.contents?.some(content => content.parts?.some(part => part.thought === true || part.thoughtSignature || part.thought_signature))) {
+        throw requiredPolicyUnsupported("Gemini reasoning continuity");
+      }
+      if (body.contents?.some(content => content.parts?.some(part => part.functionResponse)
+        && (content.parts.length !== 1 || Object.hasOwn(content.parts[0].functionResponse, "parts")
+          || Object.hasOwn(content.parts[0].functionResponse?.response || {}, "result")))) {
+        throw requiredPolicyUnsupported("Gemini tool result protocol");
+      }
+      if (body.contents?.some(content => content.parts?.some(part => part.fileData
+        || (part.inlineData && !part.inlineData.mimeType?.startsWith("image/")))
+        || (content.parts?.some(part => part.functionCall) && content.parts.some(part => part.inlineData)))) {
+        throw requiredPolicyUnsupported("Gemini multipart protocol");
+      }
+      if (body.tools?.some(tool => Object.keys(tool).some(key => key !== "functionDeclarations")
+        || tool.functionDeclarations?.some(declaration => Object.keys(declaration)
+          .some(key => !["name", "description", "parameters"].includes(key))))) {
+        throw requiredPolicyUnsupported("Gemini tool declaration protocol");
+      }
+    }
     const hasCacheMarker = (value) => value && typeof value === "object" &&
       (Object.hasOwn(value, "cache_control") || Object.hasOwn(value, "cachedContent") || Object.hasOwn(value, "cacheControl") ||
         Object.values(value).some(hasCacheMarker));

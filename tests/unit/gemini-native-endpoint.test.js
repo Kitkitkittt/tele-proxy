@@ -26,6 +26,7 @@ vi.mock("@/lib/localDb", () => ({
 
 const { GET } = await import("../../src/app/api/v1beta/models/route.js");
 const { POST } = await import("../../src/app/api/v1beta/models/[...path]/route.js");
+const { detectFormatByEndpoint, FORMATS } = await import("../../open-sse/translator/formats.js");
 
 function makeGeminiRequest(path, body, headers = {}, signal) {
   return new Request(`https://router.test/v1beta/models/${path}`, {
@@ -235,18 +236,85 @@ describe("Gemini native v1beta endpoint", () => {
     expect(mocks.markAccountUnavailable).not.toHaveBeenCalled();
   });
 
-  it("keeps non-audio Gemini requests on the existing chat conversion path", async () => {
+  it("retains native instructions, tool turns, cache, schema and cancellation through chat ingress", async () => {
+    const controller = new AbortController();
     const body = {
-      contents: [{ parts: [{ text: "hello" }] }],
-      generationConfig: { temperature: 0.3 },
+      systemInstruction: { role: "system", parts: [{ text: "First instruction" }, { text: "Second instruction" }] },
+      contents: [
+        { role: "model", parts: [{ functionCall: { id: "call-1", name: "inspect", args: { path: "." } }, thoughtSignature: "synthetic-signature" }] },
+        { role: "user", parts: [{ functionResponse: { id: "call-1", name: "inspect", response: { result: "synthetic" } } }, { inlineData: { mimeType: "image/png", data: "synthetic" } }] },
+      ],
+      tools: [{ functionDeclarations: [{ name: "inspect", parameters: { type: "OBJECT", properties: { path: { type: "STRING" } } } }] }],
+      toolConfig: { functionCallingConfig: { mode: "AUTO" } }, cachedContent: "opaque-cache",
+      generationConfig: { temperature: 0.3, responseMimeType: "application/json", responseSchema: { type: "OBJECT" }, thinkingConfig: { thinkingBudget: 32 } },
     };
-
-    await POST(makeGeminiRequest("gemini-2.5-flash:generateContent", body), {
-      params: Promise.resolve({ path: ["gemini-2.5-flash:generateContent"] }),
+    await POST(makeGeminiRequest("quality:generateContent", body, {}, controller.signal), {
+      params: Promise.resolve({ path: ["quality:generateContent"] }),
     });
-
     expect(mocks.handleChat).toHaveBeenCalledTimes(1);
+    const forwarded = mocks.handleChat.mock.calls[0][0];
+    expect(await forwarded.json()).toEqual({ ...body, model: "quality", stream: false });
+    expect(detectFormatByEndpoint(new URL(forwarded.url).pathname, { ...body, input: "spoofed format" })).toBe(FORMATS.GEMINI);
+    controller.abort();
+    expect(forwarded.signal.aborted).toBe(true);
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("preserves native streaming parts across split SSE frames without double translation", async () => {
+    const native = { candidates: [{ content: { role: "model", parts: [{ functionCall: { id: "call-1", name: "inspect", args: { path: "." } }, thoughtSignature: "synthetic-signature" }] }, finishReason: "STOP" }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 2 } };
+    const wire = `data: ${JSON.stringify(native)}\r\n\r\n`;
+    const encoder = new TextEncoder();
+    mocks.handleChat.mockResolvedValueOnce(new Response(new ReadableStream({ start(controller) {
+      controller.enqueue(encoder.encode(wire.slice(0, 23)));
+      controller.enqueue(encoder.encode(wire.slice(23)));
+      controller.close();
+    } }), { headers: { "Content-Type": "text/event-stream" } }));
+    const response = await POST(makeGeminiRequest("quality:streamGenerateContent", { contents: [{ parts: [{ text: "hello" }] }] }), {
+      params: Promise.resolve({ path: ["quality:streamGenerateContent"] }),
+    });
+    expect(await response.text()).toBe(wire);
+    expect((await mocks.handleChat.mock.calls[0][0].json()).stream).toBe(true);
+  });
+
+  it.each([{ promptFeedback: { blockReason: "SAFETY" } }, { usageMetadata: { totalTokenCount: 12 } }])("retains Gemini metadata-only streaming frames %j", async (frame) => {
+    mocks.handleChat.mockResolvedValueOnce(new Response(`data: ${JSON.stringify({ response: frame })}\n\n`));
+    const response = await POST(makeGeminiRequest("quality:streamGenerateContent", { contents: [] }), { params: Promise.resolve({ path: ["quality:streamGenerateContent"] }) });
+    expect(await response.text()).toBe(`data: ${JSON.stringify(frame)}\r\n\r\n`);
+  });
+
+  it("retains translated tool call IDs and arguments in Gemini streaming output", async () => {
+    const chunks = [
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: "call-1", function: { name: "inspect", arguments: '{"path":' } }] } }] },
+      { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '"."}' } }] }, finish_reason: "tool_calls" }], usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 } },
+    ];
+    mocks.handleChat.mockResolvedValueOnce(new Response(chunks.map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n"));
+    const response = await POST(makeGeminiRequest("quality:streamGenerateContent", { contents: [] }), {
+      params: Promise.resolve({ path: ["quality:streamGenerateContent"] }),
+    });
+    const frame = JSON.parse((await response.text()).split("\r\n")[0].slice(6));
+    expect(frame.candidates[0].content.parts).toEqual([{ functionCall: { id: "call-1", name: "inspect", args: { path: "." } } }]);
+    expect(frame.usageMetadata.totalTokenCount).toBe(12);
+  });
+
+  it("retains translated nonstream tool calls in Gemini output", async () => {
+    mocks.handleChat.mockResolvedValueOnce(Response.json({ choices: [{ message: { content: null, tool_calls: [{ id: "call-1", function: { name: "inspect", arguments: '{"path":"."}' } }] }, finish_reason: "tool_calls" }] }));
+    const response = await POST(makeGeminiRequest("quality:generateContent", { contents: [] }), { params: Promise.resolve({ path: ["quality:generateContent"] }) });
+    const result = await response.json();
+
+    expect(result.candidates[0].content.parts).toContainEqual({ functionCall: { id: "call-1", name: "inspect", args: { path: "." } } });
+  });
+  it("fails the stream rather than emitting fabricated arguments for an incomplete tool call", async () => {
+    const chunk = { choices: [{ delta: { tool_calls: [{ index: 0, id: "call-1", function: { name: "inspect", arguments: '{"path":' } }] }, finish_reason: "length" }] };
+    mocks.handleChat.mockResolvedValueOnce(new Response(`data: ${JSON.stringify(chunk)}\n\n`));
+    const response = await POST(makeGeminiRequest("quality:streamGenerateContent", { contents: [] }), { params: Promise.resolve({ path: ["quality:streamGenerateContent"] }) });
+    await expect(response.text()).rejects.toThrow("Upstream returned invalid tool arguments");
+  });
+
+  it("unwraps native nonstream response envelopes without dropping tool parts", async () => {
+    const native = { candidates: [{ content: { role: "model", parts: [{ functionCall: { id: "call-1", name: "inspect", args: {} } }] } }] };
+    mocks.handleChat.mockResolvedValueOnce(Response.json({ response: native }));
+    const response = await POST(makeGeminiRequest("quality:generateContent", { contents: [] }), { params: Promise.resolve({ path: ["quality:generateContent"] }) });
+    expect(await response.json()).toEqual(native);
   });
 
   it("does not hijack provider-prefixed non-Gemini audio requests", async () => {

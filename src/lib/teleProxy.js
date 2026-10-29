@@ -5,6 +5,7 @@ import { getApiKeyByKey } from "./db/repos/apiKeysRepo.js";
 import { snapshotComboPolicy } from "./comboPolicy.js";
 import * as ledger from "./requestLedger.js";
 import * as telemetry from "./gatewayTelemetry.js";
+import { captureProjectDiagnostic } from "./privacyDiagnostics.js";
 import { applyComboPolicy } from "../../open-sse/services/comboPolicy.js";
 import { withDispatchContext, withDispatchMetadata } from "../../open-sse/services/dispatchContext.js";
 import { observeGeneration } from "../../open-sse/services/observeGeneration.js";
@@ -199,6 +200,14 @@ export async function withGatewayRequest({ request, body, target, requestedAlias
     }
     if (row) await persist(() => ledger.finishRequest(row.requestId, { finalStatus, policyAppliedStatus: root.policyStatus, accountingIncomplete: root.accountingIncomplete }));
     safeTelemetry("endRequest", span, { status: finalStatus, durationMs: elapsed(root.started), clientFirstContentMs: root.firstContent === null ? null : Math.max(0, Math.round(root.firstContent - root.started)), policyAppliedStatus: root.policyStatus });
+    if (row?.approvedProjectId) {
+      const outcome = finalStatus === "success" || finalStatus === "cancelled" ? finalStatus : "error";
+      const diagnostic = { event: "request", outcome, durationMs: elapsed(root.started) };
+      if (root.firstContent !== null) diagnostic.clientFirstContentMs = Math.max(0, Math.round(root.firstContent - root.started));
+      void captureProjectDiagnostic(row.approvedProjectId, diagnostic, row.requestId).catch((error) => {
+        if (error?.status !== 403) safeTelemetry("recordDrop", "diagnostic_failed");
+      });
+    }
   };
   if (invalidPolicy) {
     root.policyStatus = "failed";

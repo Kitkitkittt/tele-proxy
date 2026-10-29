@@ -28,8 +28,8 @@ export function policyMutation(policy, draft, { selectVersion, disable = false }
   const maxInjectedTokens = Number(values.maxInjectedTokens);
   if (!Number.isInteger(maxInjectedTokens) || maxInjectedTokens < 1 || maxInjectedTokens > 8192) throw new Error("Token cap must be a whole number from 1 to 8192.");
   if (!["off", "append_preserve_client"].includes(values.mergeMode)) throw new Error("Select a valid merge mode.");
-  if (values.enabled && !values.text.trim()) throw new Error("An enabled policy needs text.");
-  if (values.enabled && estimatePolicyTokens(values.text) > maxInjectedTokens) throw new Error("Policy text exceeds the token cap. Shorten it or raise the cap before enabling.");
+  if (values.enabled && values.mergeMode !== "off" && !values.text.trim()) throw new Error("An enabled append policy needs text.");
+  if (estimatePolicyTokens(values.text) > maxInjectedTokens) throw new Error("Policy text exceeds the token cap. Shorten it or raise the cap before saving.");
   return { ...values, maxInjectedTokens, expectedVersion };
 }
 

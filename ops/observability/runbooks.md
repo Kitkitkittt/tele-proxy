@@ -43,6 +43,7 @@ Application metrics use prefix `nine_router_`, with bounded `environment` on eve
 | `telemetry_dropped_total` | Counter; `reason` | Bounded trace-export/log queue failures or drops |
 | `export_queue_size` | Gauge | Current application export queue depth |
 | `process_resident_memory_bytes` | Gauge | Gateway process RSS, not container memory |
+| `process_start_time_seconds` | Gauge | Gateway process start time as Unix seconds; changes between scrapes show observed process restarts, not container restart counts |
 | `process_cpu_seconds_total` | Counter | Cumulative process CPU time |
 | `event_loop_delay_seconds` | Gauge | Gateway event-loop delay |
 
@@ -52,7 +53,7 @@ No request/key/session/project identifiers, prompt hashes, raw errors, or arbitr
 
 **The durable ledger is authoritative.** Open authenticated `/dashboard/usage` for reconciliation and project-level attribution. `GET /api/usage/ledger` supplies known/unknown usage/cost coverage, currency totals in integer Micros across reported, reconciled, metered, reference, subscription and local bases, plus fixed fees. Divide by 1,000,000 only within one currency. Do not add alternative bases or currencies together; do not multiply fixed period fees by request count. Unknown charges are not zero, metered estimates are not provider invoices, and reference value is not cash spend or guaranteed savings. These facts are deliberately not invented as Prometheus billing metrics or obtained by scraping the authenticated admin API.
 
-Operational coverage limitations are explicit on dashboards: tokens cannot be grouped by combo/project from this metric contract; `upstream_error` is not an exact 5xx count; no empty-stream, gateway-only overhead, per-call generation-speed, quota-age, configured-budget, or authoritative container-restart series is provided. Provider success fraction measures observed attempts, not active provider health. Counter resets may suggest a restart but do not prove one. First-content p95 differences do not measure gateway overhead. Aggregate output tokens/second measures finalized tokens over wall time, not per-call generation speed or inter-token latency. Use ledger/log evidence and the controlled benchmark for those questions.
+Operational coverage limitations are explicit on dashboards: tokens cannot be grouped by combo/project from this metric contract; `upstream_error` is not an exact 5xx count; no empty-stream, gateway-only overhead, per-call generation-speed, quota-age, configured-budget, or authoritative container-restart series is provided. Provider success fraction measures observed attempts, not active provider health. Process start-time changes reveal observed process restarts, but multiple restarts between scrapes count once. First-content p95 differences do not measure gateway overhead. Aggregate output tokens/second measures finalized tokens over wall time, not per-call generation speed or inter-token latency. Use ledger/log evidence and the controlled benchmark for those questions.
 
 ## Canary unavailable
 

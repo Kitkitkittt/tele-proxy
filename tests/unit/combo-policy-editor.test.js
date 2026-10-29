@@ -38,6 +38,10 @@ describe("combo policy editor actions", () => {
     expect(() => policyMutation(current, draft, { selectVersion: 0 })).toThrow();
     expect(estimatePolicyTokens("ééé")).toBe(2);
     expect(() => policyMutation(current, { ...draft, enabled: false, text: "", mergeMode: "off" })).not.toThrow();
+    expect(() => policyMutation(current, { ...draft, enabled: true, text: "", mergeMode: "off" })).not.toThrow();
+    for (const enabled of [true, false]) {
+      expect(() => policyMutation(current, { ...draft, enabled, text: "12345", maxInjectedTokens: 1, mergeMode: "off" })).toThrow("Policy text exceeds the token cap");
+    }
   });
 
 });

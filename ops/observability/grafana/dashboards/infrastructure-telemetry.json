@@ -98,7 +98,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "Alerts are evaluated in Prometheus and shown below; **notification delivery is disabled**. Host CPU/RAM come from read-only `/proc` and `/sys`; gateway process CPU/RSS/event-loop metrics are process-specific, not cgroup utilization. `/storage` is the isolated canary data volume and reports its **backing filesystem** capacity, not a per-volume quota or capacity of every backend volume. A CPU counter reset is an observed reset, not proof of a restart. Inspect container state for restart counts. Collector counter spelling supports OTel variants; runtime series must be checked against the pinned Alloy."
+        "content": "Alerts are evaluated in Prometheus and shown below; **notification delivery is disabled**. Host CPU/RAM come from read-only `/proc` and `/sys`; gateway process CPU/RSS/event-loop metrics are process-specific, not cgroup utilization. `/storage` is the isolated canary data volume and reports its **backing filesystem** capacity, not a per-volume quota or capacity of every backend volume. Process start-time changes reveal observed process restarts, but multiple restarts between scrapes count once; inspect container state for container restart counts. Collector counter spelling supports OTel variants; runtime series must be checked against the pinned Alloy."
       }
     },
     {
@@ -753,8 +753,8 @@
     },
     {
       "id": 15,
-      "title": "Observed gateway CPU counter resets",
-      "description": "Reset observation can miss restarts between scrapes; no authoritative container restart counter is collected.",
+      "title": "Observed gateway process restarts",
+      "description": "Changes in process start time between scrapes; multiple restarts between scrapes are counted once. This is not a container restart counter.",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -769,7 +769,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "resets(nine_router_process_cpu_seconds_total{environment=~\"$environment\",job=\"tele-proxy-canary\"}[$__range])",
+          "expr": "changes(nine_router_process_start_time_seconds{environment=~\"$environment\",job=\"tele-proxy-canary\"}[$__range])",
           "legendFormat": "{{instance}}",
           "range": true,
           "instant": false

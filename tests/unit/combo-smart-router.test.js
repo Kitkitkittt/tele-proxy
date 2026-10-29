@@ -61,6 +61,22 @@ describe("System One Smart Combo Router", () => {
       };
       expect(extractPromptState(body)).toBe("Parse this AST: function foo() {}");
     });
+    it("extracts the latest Gemini user turn from native contents while preserving role semantics", () => {
+      const body = {
+        contents: [
+          { role: "user", parts: [{ text: "Earlier question" }] },
+          { role: "model", parts: [{ text: "Earlier answer" }] },
+          { role: "user", parts: [{ text: "Current question" }, { text: "with context" }] },
+        ],
+      };
+      expect(extractPromptState(body)).toBe("Current question with context");
+    });
+
+    it("falls back to the latest Gemini content when no user role exists", () => {
+      expect(extractPromptState({
+        contents: [{ role: "model", parts: [{ text: "Model-only content" }] }],
+      })).toBe("Model-only content");
+    });
 
     it("extracts from string prompt or input", () => {
       expect(extractPromptState({ prompt: "Hello world" })).toBe("Hello world");

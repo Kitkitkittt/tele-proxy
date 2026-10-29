@@ -73,9 +73,10 @@ export {
 export async function exportDb() {
   const db = await getAdapter();
   const { exportSettings } = await import("./repos/settingsRepo.js");
+  const { teleProxyDiagnostics, ...exportedSettings } = await exportSettings();
 
   const out = {
-    settings: await exportSettings(),
+    settings: exportedSettings,
     providerConnections: db.all(`SELECT * FROM providerConnections`).map((r) => ({ ...parseJson(r.data, {}), id: r.id, provider: r.provider, authType: r.authType, name: r.name, email: r.email, priority: r.priority, isActive: r.isActive === 1, createdAt: r.createdAt, updatedAt: r.updatedAt })),
     providerNodes: db.all(`SELECT * FROM providerNodes`).map((r) => ({ ...parseJson(r.data, {}), id: r.id, type: r.type, name: r.name, createdAt: r.createdAt, updatedAt: r.updatedAt })),
     proxyPools: db.all(`SELECT * FROM proxyPools`).map((r) => ({ ...parseJson(r.data, {}), id: r.id, isActive: r.isActive === 1, testStatus: r.testStatus, createdAt: r.createdAt, updatedAt: r.updatedAt })),
@@ -102,6 +103,9 @@ export async function importDb(payload) {
   const db = await getAdapter();
 
   db.transaction(() => {
+    const currentSettings = parseJson(db.get(`SELECT data FROM settings WHERE id = 1`)?.data, {});
+    const { teleProxyDiagnostics: ignored, ...importedSettings } = payload.settings || {};
+    if (currentSettings.teleProxyDiagnostics !== undefined) importedSettings.teleProxyDiagnostics = currentSettings.teleProxyDiagnostics;
     // Wipe all tables (keep _meta)
     db.run(`DELETE FROM settings`);
     db.run(`DELETE FROM providerConnections`);
@@ -112,9 +116,7 @@ export async function importDb(payload) {
     db.run(`DELETE FROM kv WHERE scope IN ('modelAliases', 'customModels', 'mitmAlias', 'pricing')`);
 
     // Settings
-    if (payload.settings) {
-      db.run(`INSERT INTO settings(id, data) VALUES(1, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data`, [stringifyJson(payload.settings)]);
-    }
+    db.run(`INSERT INTO settings(id, data) VALUES(1, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data`, [stringifyJson(importedSettings)]);
 
     for (const c of payload.providerConnections || []) {
       const { id, provider, authType, name, email, priority, isActive, createdAt, updatedAt, ...rest } = c;

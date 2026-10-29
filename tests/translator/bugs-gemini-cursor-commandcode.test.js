@@ -12,6 +12,8 @@ const O2G = (body) => translateRequest(FORMATS.OPENAI, FORMATS.GEMINI, "m", body
 const O2C = (body) => translateRequest(FORMATS.OPENAI, FORMATS.CURSOR, "m", body, true, null, "cursor");
 const O2CC = (body) => translateRequest(FORMATS.OPENAI, FORMATS.COMMANDCODE, "m", body, true, null, "commandcode");
 
+const G2O = (body) => translateRequest(FORMATS.GEMINI, FORMATS.OPENAI, "m", body, true, null, null);
+
 describe("OpenAI → Gemini", () => {
   it("keeps multiple system messages", () => {
     const out = O2G({
@@ -73,6 +75,33 @@ describe("OpenAI → Gemini", () => {
     expect(wire.tools[0].functionDeclarations[0]).toEqual({ name: "lookup", description: "Find value",
       parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } });
     expect(JSON.stringify(wire.contents)).not.toContain("First system");
+  });
+});
+
+describe("Gemini → OpenAI", () => {
+  it("defaults an omitted role to user", () => {
+    const out = G2O({ contents: [{ parts: [{ text: "hi" }] }] });
+    expect(out.messages[0].role).toBe("user");
+  });
+
+  it("normalizes nested schema type enums without changing enum values", () => {
+    const out = G2O({
+      contents: [{ role: "user", parts: [{ text: "hi" }] }],
+      tools: [{ functionDeclarations: [{ name: "lookup", parameters: {
+        type: "OBJECT",
+        properties: {
+          kind: { type: "STRING", enum: ["STRING", "OBJECT"] },
+          nested: { type: "ARRAY", items: { type: "INTEGER" }, examples: [{ type: "USER_DATA" }], default: { type: "USER_DATA" }, const: { type: "USER_DATA" } },
+        },
+      } }] }],
+    });
+    expect(out.tools[0].function.parameters).toEqual({
+      type: "object",
+      properties: {
+        kind: { type: "string", enum: ["STRING", "OBJECT"] },
+        nested: { type: "array", items: { type: "integer" }, examples: [{ type: "USER_DATA" }], default: { type: "USER_DATA" }, const: { type: "USER_DATA" } },
+      },
+    });
   });
 });
 

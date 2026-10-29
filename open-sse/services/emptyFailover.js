@@ -14,7 +14,7 @@
 // enum is used only in the inverse: to NOT retry a legitimately-empty content-filter block.
 
 import {
-  NO_RETRY_EMPTY_FINISH, OPENAI_FINISH, RESPONSES_STATUS, RESPONSES_INCOMPLETE_REASON,
+  GEMINI_FINISH, NO_RETRY_EMPTY_FINISH, OPENAI_FINISH, RESPONSES_STATUS, RESPONSES_INCOMPLETE_REASON,
 } from "../translator/schema/finishReasons.js";
 import { CLAUDE_BLOCK, RESPONSES_ITEM } from "../translator/schema/blocks.js";
 import { CLAUDE_EVENT, CLAUDE_DELTA, RESPONSES_EVENT, RESPONSES_EVENT_PREFIX } from "../translator/schema/streamEvents.js";
@@ -115,6 +115,17 @@ export function inspectSSELine(line) {
     return parsed.type.startsWith(RESPONSES_EVENT_PREFIX) ? inspectResponsesEvent(parsed) : inspectClaudeEvent(parsed);
   }
   let content = false, finishReason = null;
+  // Gemini and Antigravity SSE frames carry candidates directly or under response.
+  const response = parsed.response || parsed;
+  const parts = response.candidates?.[0]?.content?.parts;
+  if (Array.isArray(parts) && parts.some((part) => (part?.thought !== true && nonEmptyString(part?.text)) || part?.functionCall)) {
+    content = true;
+  }
+  const nativeFinish = response.candidates?.[0]?.finishReason || response.promptFeedback?.blockReason;
+  if (nativeFinish) {
+    finishReason = [GEMINI_FINISH.SAFETY, GEMINI_FINISH.RECITATION, GEMINI_FINISH.BLOCKLIST, GEMINI_FINISH.PROHIBITED_CONTENT].includes(nativeFinish)
+      ? OPENAI_FINISH.CONTENT_FILTER : nativeFinish;
+  }
   for (const choice of parsed.choices || []) {
     if (deltaHasClientContent(choice.delta || choice.message || {})) content = true;
     if (choice.finish_reason) finishReason = choice.finish_reason;

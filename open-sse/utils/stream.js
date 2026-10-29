@@ -438,13 +438,14 @@ export function createSSEStream(options = {}) {
             // Inject estimated usage if finish chunk has no valid usage
             const isFinishChunk = item.type === "message_delta" || item.choices?.[0]?.finish_reason;
             if (state.finishReason && isFinishChunk && !hasValidUsage(item.usage) && totalContentLength > 0) {
-              const estimated = estimateUsage(body, totalContentLength, sourceFormat);
-              item.usage = filterUsageForFormat(estimated, sourceFormat); // Filter + already has buffer
+              const usageFormat = item.choices ? FORMATS.OPENAI : sourceFormat;
+              const estimated = estimateUsage(body, totalContentLength, usageFormat);
+              item.usage = filterUsageForFormat(estimated, usageFormat); // Filter + already has buffer
               state.usage = estimated;
             } else if (state.finishReason && isFinishChunk && state.usage) {
               // Add buffer and filter usage for client (but keep original in state.usage for logging)
               const buffered = addBufferToUsage(state.usage);
-              item.usage = filterUsageForFormat(buffered, sourceFormat);
+              item.usage = filterUsageForFormat(buffered, item.choices ? FORMATS.OPENAI : sourceFormat);
             }
 
             const output = formatSSE(item, sourceFormat);

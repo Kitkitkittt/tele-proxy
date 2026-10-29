@@ -138,6 +138,16 @@ describe("forced-SSE JSON path for a Responses-API client behind a chat upstream
     });
   });
 
+  it("retains Responses tool calls when a Gemini client requests nonstream output", async () => {
+    const ctx = sseCtx(FORMATS.GEMINI, FORMATS.OPENAI_RESPONSES);
+    const completed = { id: "resp-gemini", status: "completed", output: [{ type: "function_call", call_id: "call_9", name: "shell", arguments: '{"cmd":"pwd"}' }], usage: { input_tokens: 10, output_tokens: 5 } };
+    ctx.providerResponse = new Response(`event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: completed })}\n\n`, { headers: { "content-type": "text/event-stream" } });
+    const result = await handleForcedSSEToJson(ctx);
+    expect(result.success).toBe(true);
+    const json = await result.response.json();
+    expect(json.response.candidates[0].content.parts).toEqual([{ functionCall: { id: "call_9", name: "shell", args: { cmd: "pwd" } } }]);
+  });
+
   it("still returns chat.completion for a plain chat client", async () => {
     const result = await handleForcedSSEToJson(sseCtx(FORMATS.OPENAI, FORMATS.OPENAI));
     expect(result.success).toBe(true);

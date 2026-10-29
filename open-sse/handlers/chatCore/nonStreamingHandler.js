@@ -312,7 +312,8 @@ export async function handleNonStreamingResponse({ providerResponse, provider, m
   }
 
   if (translatedResponse?.usage) {
-    translatedResponse.usage = filterUsageForFormat(addBufferToUsage(translatedResponse.usage), sourceFormat);
+    translatedResponse.usage = filterUsageForFormat(addBufferToUsage(translatedResponse.usage),
+      translatedResponse.choices ? FORMATS.OPENAI : sourceFormat);
   }
 
   // Strip reasoning_content only when content is non-empty.

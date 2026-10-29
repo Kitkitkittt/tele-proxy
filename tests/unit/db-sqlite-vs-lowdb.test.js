@@ -358,6 +358,15 @@ describe("DB SQLite layer — public API parity", () => {
     expect((await sqliteDb.getModelAliases()).marker).toBe("before");
   });
 
+  it("keeps diagnostic state private across general database export and import", async () => {
+    const diagnostics = { mode: "metadata_only", projects: { project: { enabled: true, records: [] } } };
+    await sqliteDb.updateSettings({ teleProxyDiagnostics: diagnostics });
+    const exported = await sqliteDb.exportDb();
+    expect(exported.settings).not.toHaveProperty("teleProxyDiagnostics");
+    await sqliteDb.importDb({ ...exported, settings: { ...exported.settings, teleProxyDiagnostics: { projects: { attacker: { enabled: true } } } } });
+    expect((await sqliteDb.getSettings()).teleProxyDiagnostics).toEqual(diagnostics);
+  });
+
   it("pricing: user pricing merged with constants", async () => {
     await sqliteDb.updatePricing({ openai: { "gpt-test": { input: 1, output: 2 } } });
     const p = await sqliteDb.getPricing();

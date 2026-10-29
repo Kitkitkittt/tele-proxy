@@ -40,7 +40,6 @@ describe("Antigravity → OpenAI", () => {
     const tool = out.messages.find((m) => m.role === "tool");
     expect(tool?.tool_call_id, "id mismatch between call and response").toBe(asst?.tool_calls?.[0]?.id);
   });
-
   // antigravity-to-openai.js:144-147 — signature-only part handling (regression guard)
   it("signature-only part does not produce empty text", () => {
     const out = AG2O({

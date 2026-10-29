@@ -27,17 +27,16 @@ const comboSessionModelStore = new Map();
 export function extractPromptState(body, maxChars = MAX_STATE_CHARS) {
   if (!body || typeof body !== "object") return "";
 
-  // Messages array (OpenAI / Claude / etc.) or input array (Codex)
+  // Messages array (OpenAI / Claude / etc.), native Gemini contents, or input array (Codex)
   const messages = Array.isArray(body.messages)
     ? body.messages
-    : (Array.isArray(body.input) ? body.input : null);
-
+    : (Array.isArray(body.contents) ? body.contents : (Array.isArray(body.input) ? body.input : null));
   if (messages && messages.length > 0) {
     // Find the latest user message
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
-      if (msg?.role === "user" || msg?.type === "message" || (!msg?.role && msg?.content)) {
-        const text = extractTextFromContent(msg.content ?? msg.text);
+      if (msg?.role === "user" || msg?.type === "message" || (!msg?.role && (msg?.content || msg?.parts))) {
+        const text = extractTextFromContent(msg.content ?? msg.parts ?? msg.text);
         if (text && text.trim().length > 0) {
           return text.trim().slice(0, maxChars);
         }
@@ -45,7 +44,7 @@ export function extractPromptState(body, maxChars = MAX_STATE_CHARS) {
     }
     // Fallback: latest message of any role
     const lastMsg = messages[messages.length - 1];
-    const text = extractTextFromContent(lastMsg?.content ?? lastMsg?.text);
+    const text = extractTextFromContent(lastMsg?.content ?? lastMsg?.parts ?? lastMsg?.text);
     if (text) return text.trim().slice(0, maxChars);
   }
 
@@ -66,7 +65,7 @@ function extractTextFromContent(content) {
     return content
       .map((part) => {
         if (typeof part === "string") return part;
-        if (part?.type === "text" && typeof part.text === "string") return part.text;
+        if ((!part?.type || part.type === "text") && typeof part?.text === "string") return part.text;
         return "";
       })
       .filter(Boolean)

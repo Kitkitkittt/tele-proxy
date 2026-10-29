@@ -6,6 +6,8 @@
 - Bounded metadata-only OpenTelemetry/log export, authenticated Prometheus metrics, native dispatch hooks, terminal usage observation, first-content timing and client cancellation propagation.
 - Digest-pinned private monitoring, Langfuse 4.0.0 and optional Tempo profiles; four dashboards, fifteen alerts, bootstrap/backup/restore utilities and isolated synthetic canary.
 - Dependency-ordered remaining-ticket plan distinguishing implemented behavior, missing physical-send/diagnostic/dashboard work, isolated backend acceptance and operator-only decisions; completed migration is not scheduled again.
+- Project-attributed, bounded metadata-only diagnostic capture with authenticated opt-in and expiry; general settings and database transfers exclude its state.
+- Alternating benchmark ordering and restore preflight with private Compose overrides; the fixed default network remains unchanged.
 
 ## Fixed
 - Preserve developer instructions through OpenAI-to-Anthropic translation and required policies independently of compression; reject known unsupported native preservation before dispatch.
@@ -16,11 +18,12 @@
 - Account for direct speech, transcription, embedding and video inference without counting uploads, polling or downloads; reject active combo instruction policies on unsupported search/fetch routes before credentials or dispatch.
 - Settle delayed Devin ACP prompts from native completion/cancellation events, preserve physical abort signals, and unregister database shutdown listeners when adapters close.
 - Preserve ordered OpenAI system/developer instructions in Gemini-native fields and reject non-text instruction shapes rather than silently discarding them; suppress Cursor decoded-frame/error debug logs at runtime in feature mode, even when `CURSOR_STREAM_DEBUG=1`.
+- Preserve native Gemini request structure and abort signals, correct cross-protocol translation and failover handling, and retain unknown provenance for malformed usage subsets.
 - Suppress Cursor protobuf debug logs in feature mode, including decoded tool names, while retaining feature-off debugging.
 
 ## Deployment limits
 - Native systemd gateway deployed 2026-10-29 at `tele-proxy.vnibb.xyz`, preserving old-host clients and migrated authentication/combos/history under one OAuth owner. Frozen source `785eeb261d688bf5071f13c700e153b3f93497b2`; dated acceptance and current-state rollback evidence are in `docs/observability/TEST_REPORT.md` and `ROLLOUT_ROLLBACK.md`. No client configuration changed.
-- Gemini/Muse browser generation boundaries and hidden transport retries remain explicitly incomplete; no fabricated physical counts. Native Grafana/Prometheus and Alloy/Loki smoke checks passed; Compose/Langfuse runtime still require Docker access/capacity. Full seven-day Langfuse retention is license-gated. The quiet canary's additional p95 overhead was 15.07ms against a 10ms target; synchronous WAL checkpoint latency was profiled without weakening durability.
+- Gemini/Muse browser generation boundaries and hidden transport retries remain incomplete. Full monitoring/Compose/Langfuse runtime, supported full retention and backend restore remain unverified; sudo Docker access exists, but root storage is below the documented reserve. Historical overhead results remain in the verification report.
 - Exact executed checks and remaining limitations are recorded in `docs/observability/TEST_REPORT.md`.
 
 ## Security

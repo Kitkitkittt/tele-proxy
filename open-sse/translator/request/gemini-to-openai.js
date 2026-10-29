@@ -60,7 +60,7 @@ export function geminiToOpenAIRequest(model, body, stream) {
             function: {
               name: func.name,
               description: func.description || "",
-              parameters: func.parameters || { type: "object", properties: {} }
+              parameters: normalizeGeminiSchemaTypes(func.parameters) || { type: "object", properties: {} }
             }
           });
         }
@@ -71,9 +71,29 @@ export function geminiToOpenAIRequest(model, body, stream) {
   return result;
 }
 
+function normalizeGeminiSchemaTypes(schema) {
+  if (Array.isArray(schema)) return schema.map(normalizeGeminiSchemaTypes);
+  if (!schema || typeof schema !== "object") return schema;
+
+  const normalized = { ...schema };
+  if (["OBJECT", "STRING", "NUMBER", "INTEGER", "BOOLEAN", "ARRAY", "NULL"].includes(normalized.type)) {
+    normalized.type = normalized.type.toLowerCase();
+  }
+
+  for (const key of ["properties", "patternProperties", "$defs"]) {
+    if (normalized[key] && typeof normalized[key] === "object" && !Array.isArray(normalized[key])) {
+      normalized[key] = Object.fromEntries(Object.entries(normalized[key]).map(([name, child]) => [name, normalizeGeminiSchemaTypes(child)]));
+    }
+  }
+  for (const key of ["additionalProperties", "items", "prefixItems", "anyOf", "oneOf", "allOf", "not"]) {
+    if (normalized[key] !== undefined) normalized[key] = normalizeGeminiSchemaTypes(normalized[key]);
+  }
+  return normalized;
+}
+
 // Convert Gemini content to OpenAI message
 function convertGeminiContent(content) {
-  const role = content.role === GEMINI_ROLE.USER ? ROLE.USER : ROLE.ASSISTANT;
+  const role = content.role === GEMINI_ROLE.USER || !content.role ? ROLE.USER : ROLE.ASSISTANT;
   
   if (!content.parts || !Array.isArray(content.parts)) {
     return null;

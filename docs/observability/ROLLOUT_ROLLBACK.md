@@ -16,7 +16,7 @@ python3 bootstrap.py --image local-registry/tele-proxy@sha256:YOUR_ACTUAL_64_HEX
 
 `bootstrap.py` refuses replacement; `.env` and `secrets/` are ignored, private, and must never be attached to an issue. No default passwords exist. Back up `.env` encrypted offline; its Langfuse encryption key is necessary for recovery. Do not run shell tracing or paste expanded Compose output. Rotate by deliberate replacement plus affected service recreation, not rerunning bootstrap over existing state.
 
-`python3 selfcheck.py` is the safe offline bootstrap check: temporary-directory validation, unique-secret/permission assertions, and refusal-to-overwrite. It uses no network, Docker or inference; run during the main verification pass.
+`python3 selfcheck.py` is the safe offline bootstrap/recovery check: temporary-directory secret/permission assertions and mocked restore preflight/override checks. It uses no network, Docker or inference; it is not a real backend restore. Run during the main verification pass.
 
 ## Production artifact gate: feature off at build, on at startup
 
@@ -57,6 +57,35 @@ trap - EXIT
 **Release gates:** inspect both prerendered `.next/server/app` HTML and fetched login/dashboard HTML plus browser network requests. No Google Analytics scripts, `gtag` initialization, analytics measurement ID or Google Analytics/Tag Manager request may be baked into the artifact in either feature mode; analytics was removed, not flag-hidden. Authenticated metrics must return real series and unauthenticated metrics must remain denied. Exercise mock-only inference with a synthetic sentinel, then inspect runtime stdout, legacy console-capture buffers, capture directories, OTLP payloads and retained state per [PRIVACY.md](PRIVACY.md): no prohibited content or legacy capture initialization. Record build exit, runtime checks, artifact identity and unavailable gates in [TEST_REPORT.md](TEST_REPORT.md). A health response alone does not satisfy these privacy gates.
 
 `node scripts/tele-proxy-canary.mjs --runtime=production --samples=40 --concurrency=2` exercises this exact standalone artifact with the feature off and on, authenticates the dashboard, and checks fetched login/Combos HTML for analytics. Omitting `--runtime=production` selects the separate development-runtime regression. Docker image build/runtime validation remains separate and unavailable until daemon permission exists. Neither native run implies deployment or promotion.
+
+### Alternating matched benchmark
+
+The default order remains off then on. Use `--benchmark-order=on-off` to reverse it. Each timed mode has a fresh server and separate temporary state, seeded for that mode immediately before the same six warmups and indexed sample workload. The enabled seed additionally configures policies, attribution and tariffs; those differences are part of the measured enabled configuration. Both timed modes run before the separately seeded acceptance, outage and restart exercises. JSON `benchmark.order` records the actual order; `additionalP95EstimateMs` remains enabled minus baseline, regardless of order.
+
+After the isolated production artifact is built, record five matched pairs at each concurrency, alternating the first mode across pairs. Keep all results, including failures; do not cherry-pick or compare different artifacts/hardware:
+
+```sh
+results=$(mktemp -d /tmp/tele-proxy-benchmark.XXXXXX)
+failed=0
+for concurrency in 1 2; do
+  for pair in 1 2 3 4 5; do
+    order=off-on
+    if [ "$((pair % 2))" -eq 0 ]; then order=on-off; fi
+    file="$results/c${concurrency}-pair${pair}-${order}.json"
+    if node scripts/tele-proxy-canary.mjs --runtime=production --samples=40 --concurrency="$concurrency" --benchmark-order="$order" >"$file" 2>"$file.stderr"; then
+      status=0
+    else
+      status=$?
+      failed=1
+    fi
+    printf '%s\n' "$status" >"$file.exit"
+    printf '%s exit=%s\n' "$file" "$status"
+  done
+done
+printf 'results=%s failed=%s\n' "$results" "$failed"
+```
+
+Exit 0 means that invocation completed its acceptance matrix and the additional gateway p95 estimate was `<10 ms`; exit 2 means the p95 gate failed; exit 1 means the run failed before a complete comparison. Any nonzero result leaves the repeatability gate open. Retain artifact identity, hardware/workload/concurrency/sample metadata and all ten JSON stdout files, stderr files and exit-status files; an empty/incomplete result is not a passing pair. Review diagnostics for sensitive data before sharing. This mock-only estimate does not certify production latency, live providers, real Langfuse ingestion or backend-volume recovery.
 
 ## 2. Validate on a Docker-capable host
 
@@ -122,15 +151,29 @@ python3 backup.py backup backups/canary-YYYYMMDD
 # Restart only previously active profiles, not all profiles.
 ```
 
-`backup.py` refuses running containers, copies state from stopped containers via Docker's archive API (no helper image, socket mount or credentials in arguments), and writes SHA256 manifest checksums. Back up private `.env` separately and record feature commit, image pins, active profiles and migration versions. PostgreSQL, ClickHouse, Redis and MinIO must all be stopped for this consistent offline boundary. Compose is not HA; crashes between snapshots can lose the snapshot interval.
+`backup.py` refuses running containers, copies state from stopped containers via Docker's archive API (no helper image, socket mount or credentials in arguments), and writes SHA256 manifest checksums. Back up private `.env` separately and record feature commit, image pins, active profiles, schema/migration versions, secret-set reference, snapshot start/end and last accepted synthetic event time. PostgreSQL, ClickHouse, Redis and MinIO must all be present and stopped for a full Langfuse recovery point; the helper only backs up created services, so compare the manifest's service/path set with the enabled stores before calling it complete. `node-exporter` has no independent state. Compose is not HA; crashes between snapshots can lose the snapshot interval.
 
-For rehearsal create a **different project and fresh volumes**, not production or the original project. Use a private Compose override to bind different loopback ports and a distinct network name (root uses fixed network `tele-proxy-observability`); never start a cloned gateway with copied OAuth credentials. Use mocks/empty canary state only. `docker compose -p tele-proxy-restore ... create` creates stopped containers. Then:
+For rehearsal create a **different project and fresh empty volumes**, not production or the original project. Use a private Compose override to remove or change **every** published loopback port and set a distinct network name (both base files intentionally retain `tele-proxy-observability`). Compose merges port lists by default: use supported `!reset []`/`!override` semantics, not an additional port that leaves the original bind active. Also replace both canary `/app/logs` and Alloy `/var/log/tele-proxy` binds with a fresh synthetic log directory; `-p` does not isolate the shared `./state/logs` host path. Preserve read-only collector mounts. Use mocks/empty canary state only; never start a cloned gateway with copied OAuth credentials. Retain the matching **synthetic** secret set privately: fresh replacement keys cannot decrypt restored Langfuse data.
+
+`--env-file` changes interpolation only; it does not relocate Compose `secrets.*.file` paths. The private override must point metrics/Grafana secret-file sources at the matching synthetic set, not the default `./secrets` directory. Keep those files outside git and do not bootstrap over the source environment. Preserve source image digests/configuration; do not replace a missing pinned backend image with an unrelated locally cached database image.
+
+Use exactly the same ordered files, private env and project for container creation, helper operations and later startup. The helper accepts repeatable `--compose-override` and `--env-file` options without changing defaults. Example below assumes the operator has already prepared `$RESTORE_ENV` and `$RESTORE_OVERRIDE` at absolute private paths, inspected their effective mounts/network/ports without printing secrets, checked port availability, and confirmed the destination project/volumes have never held data. Create only services represented by the source snapshot; monitoring-only rehearsal must not create/start Langfuse or Tempo. `create` leaves containers stopped; image defaults may initialize files, so “empty” means newly allocated volumes, not reused data.
 
 ```sh
-python3 backup.py restore backups/canary-YYYYMMDD --project tele-proxy-restore --restore-isolated
+# Example monitoring-only snapshot; add canary/Langfuse/Tempo only if present in its manifest.
+docker compose --env-file "$RESTORE_ENV" -p tele-proxy-restore \
+  -f compose.yaml -f langfuse/compose.yaml -f "$RESTORE_OVERRIDE" \
+  --profile monitoring config --quiet
+docker compose --env-file "$RESTORE_ENV" -p tele-proxy-restore \
+  -f compose.yaml -f langfuse/compose.yaml -f "$RESTORE_OVERRIDE" \
+  --profile monitoring create
+python3 backup.py restore backups/canary-YYYYMMDD --project tele-proxy-restore \
+  --restore-isolated --env-file "$RESTORE_ENV" --compose-override "$RESTORE_OVERRIDE"
 ```
 
-Verify manifest checksums (script does), open the recovered gateway with the matching build/migrations, run driver-appropriate integrity checks through the existing adapter, and compare logical/attempt counts, unknown coverage, currencies and every cost basis with the source snapshot. Start recovered backends only on the isolated override network/ports; test Langfuse generation retrieval and Grafana datasource health. Record duration, reconciliation and maximum recoverable age. A backup without this rehearsal is **not restore-validated**. Never use `down -v`, `volume prune`, or delete unrelated data as rollback.
+The helper validates every listed checksum, destination container and duplicate service/path before its first write and rejects the recorded source project as a target. This is not a transaction: Docker-copy failure can leave partial destination data. Keep failed targets stopped, investigate, and use a different fresh project/volumes for a retry; do not start a partially restored stack. The helper does not certify empty volumes, network/port/bind isolation, complete enabled-store coverage or synthetic credential custody; those are explicit operator preconditions above.
+
+Open the recovered gateway with the matching build/migrations, run driver-appropriate integrity checks through the existing adapter, and compare logical/attempt counts, unknown coverage, currencies and every cost basis with the source snapshot. Start only recovered stores first, then applications on the isolated override network/ports; do not attach the source collector. Test Grafana datasource health/queries and, when included, Langfuse generation retrieval via its [pinned API contract](../../ops/observability/langfuse/README.md#retrieval-contract-and-real-ingestion-evidence). Record restore start, first healthy read and successful reconciliation times; recovery duration is through validated reads, not archive copy completion. Record snapshot age and the interval from its last accepted event to producer stop as the possible loss window. Report monitoring and Langfuse restore independently. A backup without this rehearsal is **not restore-validated**. Never use `down -v`, `volume prune`, or delete unrelated data as rollback.
 
 ## 7. Promotion and rollback boundary
 

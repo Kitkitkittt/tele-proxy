@@ -26,7 +26,8 @@ function prune(value) {
   for (const [id, entry] of Object.entries(value?.projects || {}).slice(0, 32)) {
     if (!projectId(id)) continue;
     const retentionHours = Number.isInteger(entry.retentionHours) && entry.retentionHours >= 1 && entry.retentionHours <= 24 ? entry.retentionHours : 24;
-    projects[id] = { enabled: entry.enabled === true, retentionHours, records: (Array.isArray(entry.records) ? entry.records : []).filter((r) => Number.isFinite(r.capturedAt) && r.capturedAt > now - retentionHours * 3600000).slice(-100) };
+    const enabled = entry.enabled === true && Number.isFinite(entry.expiresAt) && entry.expiresAt > now && entry.expiresAt <= now + retentionHours * 3600000;
+    projects[id] = { enabled, expiresAt: enabled ? entry.expiresAt : null, retentionHours, records: (Array.isArray(entry.records) ? entry.records : []).filter((r) => Number.isFinite(r.capturedAt) && r.capturedAt > now - retentionHours * 3600000).slice(-100) };
   }
   return { mode: "metadata_only", projects };
 }
@@ -49,14 +50,16 @@ export async function configureProjectDiagnostics(id, input) {
   return serialized(async () => {
     const settings = await getSettings(); const next = prune(settings[key]);
     if (!next.projects[id] && Object.keys(next.projects).length >= 32) fail("Diagnostic project limit reached");
-    next.projects[id] = { enabled: input.enabled, retentionHours: input.retentionHours, records: input.enabled ? (next.projects[id]?.records || []) : [] };
+    next.projects[id] = { enabled: input.enabled, expiresAt: input.enabled ? Date.now() + input.retentionHours * 3600000 : null, retentionHours: input.retentionHours, records: input.enabled ? (next.projects[id]?.records || []) : [] };
     await updateSettings({ [key]: next });
     return next.projects[id];
   });
 }
-export async function captureProjectDiagnostic(id, input) {
+export async function captureProjectDiagnostic(id, input, requestId) {
   if (!projectId(id)) fail("Invalid project");
+  if (requestId !== undefined && (typeof requestId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(requestId))) fail("Invalid request ID");
   const record = sanitizeDiagnostic(input);
+  if (requestId !== undefined) record.requestId = requestId;
   return serialized(async () => {
     const settings = await getSettings(); const next = prune(settings[key]); const project = next.projects[id];
     if (!project?.enabled) { const error = new Error("Project diagnostics are not enabled"); error.status = 403; throw error; }

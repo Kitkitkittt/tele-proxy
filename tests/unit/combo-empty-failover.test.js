@@ -103,6 +103,28 @@ describe("peekStreamForContent", () => {
     const p = await peekStreamForContent(sseStream([ROLE, REASONING, EMPTY_STOP, DONE]));
     expect(p.outcome).toBe("empty");
   });
+  it.each([
+    ["Gemini candidates", { candidates: [{ content: { parts: [{ text: "answer" }] } }] }],
+    ["Antigravity response candidates", { response: { candidates: [{ content: { parts: [{ functionCall: { name: "run", args: {} } }] } }] } }],
+  ])("detects %s as stream content", (_label, frame) => {
+    expect(inspectSSELine(`data: ${JSON.stringify(frame)}`)).toMatchObject({ content: true });
+  });
+
+  it.each([false, true])("treats Gemini thought-only stream as empty (enveloped=%s)", async (enveloped) => {
+    const thought = { candidates: [{ content: { parts: [{ thought: true, text: "private reasoning" }] }, finishReason: "STOP" }] };
+    const frame = enveloped ? { response: thought } : thought;
+    const p = await peekStreamForContent(sseStream([`data: ${JSON.stringify(frame)}\n\n`]));
+    expect(p.outcome).toBe("empty");
+    expect(isNoRetryFinish(p.finishReason)).toBe(false);
+  });
+
+  it("retains Gemini safety stops without retrying another provider", () => {
+    for (const frame of [{ candidates: [{ finishReason: "SAFETY" }] }, { promptFeedback: { blockReason: "SAFETY" } }]) {
+      const inspected = inspectSSELine(`data: ${JSON.stringify(frame)}`);
+      expect(inspected.content).toBe(false);
+      expect(isNoRetryFinish(inspected.finishReason)).toBe(true);
+    }
+  });
 
   it("content-filter empty → empty with content_filter reason (caller won't retry)", async () => {
     const p = await peekStreamForContent(sseStream([ROLE, FILTER_STOP, DONE]));

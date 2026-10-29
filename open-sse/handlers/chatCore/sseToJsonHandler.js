@@ -265,9 +265,14 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, ta
       const hasToolCalls = toolCalls.length > 0;
 
       if (sourceFormat === FORMATS.ANTIGRAVITY || sourceFormat === FORMATS.GEMINI || sourceFormat === FORMATS.GEMINI_CLI) {
+        const parts = textContent ? [{ text: textContent }] : [];
+        for (const call of toolCalls) {
+          parts.push({ functionCall: { id: call.id, name: call.function.name, args: JSON.parse(call.function.arguments) } });
+        }
+        if (!parts.length) parts.push({ text: "" });
         finalResp = {
           response: {
-            candidates: [{ content: { role: "model", parts: [{ text: textContent || "" }] }, finishReason: "STOP", index: 0 }],
+            candidates: [{ content: { role: "model", parts }, finishReason: "STOP", index: 0 }],
             usageMetadata: { promptTokenCount: inTokens, candidatesTokenCount: outTokens, totalTokenCount: inTokens + outTokens },
             modelVersion: model,
             responseId: jsonResponse.id || `resp_${Date.now()}`

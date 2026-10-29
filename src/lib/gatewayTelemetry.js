@@ -28,6 +28,7 @@ const state = globalThis[Symbol.for("tele-proxy.gatewayTelemetry.v1")] ||= {
   counters: new Map(), histograms: new Map(), inflight: 0,
   processor: undefined, provider: undefined, tracer: undefined, initFailed: false,
   eventLoop: undefined, logQueue: [], logWriting: false, shutdown: undefined,
+  processStartTime: Date.now() / 1000 - process.uptime(),
 };
 const counters = state.counters;
 const histograms = state.histograms;
@@ -47,7 +48,7 @@ function observe(name, labels, seconds) {
   buckets.forEach((b, i) => { if (seconds <= b) h.buckets[i]++; });
 }
 export function recordDrop(value = "export_failed", amount = 1) {
-  const allowed = ["queue_full", "export_failed", "init_failed", "log_queue_full", "log_write_failed"];
+  const allowed = ["queue_full", "export_failed", "init_failed", "log_queue_full", "log_write_failed", "diagnostic_failed"];
   inc("telemetry_dropped_total", { reason: allowed.includes(value) ? value : "export_failed" }, amount);
 }
 export function ledgerFailure() { inc("ledger_write_failures_total"); }
@@ -287,7 +288,7 @@ export function metricsText() {
     lines.push(`${name}_bucket${labelsText({ ...labels, le: "+Inf" })} ${h.count}`, `${name}_sum${labelsText(labels)} ${h.sum}`, `${name}_count${labelsText(labels)} ${h.count}`);
   }
   const cpu = process.cpuUsage();
-  const gauges = { inflight_requests: state.inflight, export_queue_size: state.processor?.size || 0, process_resident_memory_bytes: process.memoryUsage().rss, event_loop_delay_seconds: state.eventLoop && Number.isFinite(state.eventLoop.mean) ? state.eventLoop.mean / 1e9 : 0 };
+  const gauges = { inflight_requests: state.inflight, export_queue_size: state.processor?.size || 0, process_resident_memory_bytes: process.memoryUsage().rss, process_start_time_seconds: state.processStartTime, event_loop_delay_seconds: state.eventLoop && Number.isFinite(state.eventLoop.mean) ? state.eventLoop.mean / 1e9 : 0 };
   for (const [name, value] of Object.entries(gauges)) lines.push(`# TYPE nine_router_${name} gauge`, `nine_router_${name}${labelsText({ environment })} ${value}`);
   lines.push("# TYPE nine_router_process_cpu_seconds_total counter", `nine_router_process_cpu_seconds_total${labelsText({ environment })} ${(cpu.user + cpu.system) / 1e6}`);
   return lines.join("\n") + "\n";
