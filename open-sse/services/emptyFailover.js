@@ -27,6 +27,7 @@ import { parseSSELine } from "../utils/streamHelpers.js";
 // assistant output the caller can consume:
 //   * delta.content (non-empty string, or non-empty array of parts)
 //   * delta.tool_calls (a real tool call)
+//   * delta.images (a non-empty image URL)
 // It deliberately does NOT count:
 //   * delta.role — 9router emits {role:"assistant"} on the first frame regardless of
 //     content; treating it as content would defeat the whole check (and A0's own retry,
@@ -39,6 +40,7 @@ export function deltaHasClientContent(delta) {
   if (typeof c === "string" && c.length > 0) return true;
   if (Array.isArray(c) && c.length > 0) return true;
   if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) return true;
+  if (Array.isArray(delta.images) && delta.images.some((image) => typeof image?.image_url?.url === "string" && /^data:image\/[^;,]+;base64,[\s\S]+$/.test(image.image_url.url))) return true;
   // OpenAI "Responses" style / non-chat deltas occasionally use output_text
   if (typeof delta.output_text === "string" && delta.output_text.length > 0) return true;
   return false;
@@ -51,6 +53,17 @@ export function deltaHasClientContent(delta) {
 // are content; reasoning / thinking is not (as reasoning_content is not). Finish reasons are
 // reported in the hub (OpenAI) vocabulary so isNoRetryFinish applies to every format.
 const nonEmptyString = (s) => typeof s === "string" && s.length > 0;
+
+function geminiPartHasClientContent(part) {
+  if (!part || part.thought === true) return false;
+  if (nonEmptyString(part.text) || part.functionCall) return true;
+  const inline = part.inlineData || part.inline_data;
+  const file = part.fileData || part.file_data;
+  const inlineMime = inline?.mimeType || inline?.mime_type;
+  const fileMime = file?.mimeType || file?.mime_type;
+  return (nonEmptyString(inlineMime) && inlineMime.startsWith("image/") && nonEmptyString(inline?.data))
+    || (nonEmptyString(fileMime) && fileMime.startsWith("image/") && nonEmptyString(file?.fileUri || file?.file_uri));
+}
 
 // Anthropic Messages event.
 function inspectClaudeEvent(obj) {
@@ -118,7 +131,7 @@ export function inspectSSELine(line) {
   // Gemini and Antigravity SSE frames carry candidates directly or under response.
   const response = parsed.response || parsed;
   const parts = response.candidates?.[0]?.content?.parts;
-  if (Array.isArray(parts) && parts.some((part) => (part?.thought !== true && nonEmptyString(part?.text)) || part?.functionCall)) {
+  if (Array.isArray(parts) && parts.some(geminiPartHasClientContent)) {
     content = true;
   }
   const nativeFinish = response.candidates?.[0]?.finishReason || response.promptFeedback?.blockReason;

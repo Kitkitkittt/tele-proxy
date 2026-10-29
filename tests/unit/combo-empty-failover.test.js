@@ -118,6 +118,17 @@ describe("peekStreamForContent", () => {
     expect(isNoRetryFinish(p.finishReason)).toBe(false);
   });
 
+  it.each([
+    { inlineData: { mimeType: "image/png", data: "" } },
+    { fileData: { mimeType: "image/png", fileUri: "" } },
+    { inlineData: { mimeType: "audio/pcm", data: "synthetic" } },
+    { inlineData: { mimeType: 123, data: "synthetic" } },
+    { thought: true, inlineData: { mimeType: "image/png", data: "synthetic" } },
+  ])("does not commit unusable or thought-only native image parts %j", part => {
+    const frame = { candidates: [{ content: { parts: [part] }, finishReason: "STOP" }] };
+    expect(inspectSSELine(`data: ${JSON.stringify(frame)}`).content).toBe(false);
+  });
+
   it("retains Gemini safety stops without retrying another provider", () => {
     for (const frame of [{ candidates: [{ finishReason: "SAFETY" }] }, { promptFeedback: { blockReason: "SAFETY" } }]) {
       const inspected = inspectSSELine(`data: ${JSON.stringify(frame)}`);
@@ -378,6 +389,43 @@ describe("combo fall-through per client format (real combo.js + streaming pipeli
       const { tried } = await combo([[ROLE, FILTER_STOP, DONE], [ROLE, C("from-m1"), STOP, DONE]], { sourceFormat });
       expect(tried).toEqual(["openai/m0"]);
     }
+  });
+
+  it.each([
+    ["inline image", { inlineData: { mimeType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/a9sAAAAASUVORK5CYII=" } }],
+    ["file image", { fileData: { mimeType: "image/png", fileUri: "https://example.invalid/synthetic.png" } }],
+  ])("commits native Gemini %s without retry or wire loss", async (_label, part) => {
+    const wire = `data: ${JSON.stringify({ candidates: [{ content: { role: "model", parts: [part] }, finishReason: "STOP" }] })}\n\n`;
+    const { out, tried } = await combo([[wire], [CONTENT, DONE]], { sourceFormat: FORMATS.GEMINI, targetFormat: FORMATS.GEMINI });
+    expect(tried).toEqual(["openai/m0"]);
+    expect(out).toContain(wire);
+  });
+
+  it("commits image-only OpenAI deltas without calling another provider", async () => {
+    const wire = `data: ${JSON.stringify({ choices: [{ delta: { images: [{ type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgo=" } }] }, finish_reason: "stop" }] })}\n\n`;
+    const { out, tried } = await combo([[wire, DONE], [CONTENT, DONE]]);
+    expect(tried).toEqual(["openai/m0"]);
+    expect(out).toContain('"images":[{"type":"image_url","image_url":{"url":"data:image/png;base64,iVBORw0KGgo="}}]');
+  });
+
+  it("preserves a translated Gemini image-only delta before the terminal chunk", async () => {
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/a9sAAAAASUVORK5CYII=";
+    const wire = `data: ${JSON.stringify({ candidates: [{ content: { role: "model", parts: [{ inlineData: { mimeType: "image/png", data: png } }] } }] })}\n\n`;
+    const stop = `data: ${JSON.stringify({ candidates: [{ finishReason: "STOP" }] })}\n\n`;
+    const { out, tried } = await combo([[wire, stop], [CONTENT, DONE]], { sourceFormat: FORMATS.OPENAI, targetFormat: FORMATS.GEMINI });
+    expect(tried).toEqual(["openai/m0"]);
+    expect(out).toContain(`data:image/png;base64,${png}`);
+  });
+
+  it("does not leak a translated Gemini thought image and falls back", async () => {
+    const secretImage = "U1lOVEhFVElDX1RIT1VHSFRfSU1BR0U=";
+    const thought = `data: ${JSON.stringify({ candidates: [{ content: { role: "model", parts: [{ thought: true, inlineData: { mimeType: "image/png", data: secretImage } }] }, finishReason: "STOP" }] })}\n\n`;
+    const answer = `data: ${JSON.stringify({ candidates: [{ content: { role: "model", parts: [{ text: "fallback answer" }] }, finishReason: "STOP" }] })}\n\n`;
+    const { out, tried } = await combo([[thought], [answer]], { sourceFormat: FORMATS.OPENAI, targetFormat: FORMATS.GEMINI });
+    expect(tried).toEqual(["openai/m0", "openai/m1"]);
+    expect(out).toContain("fallback answer");
+    expect(out).not.toContain(secretImage);
+    expect(out).not.toContain('"images"');
   });
 
   // Responses provider + Responses client: same-format passthrough of Responses events.

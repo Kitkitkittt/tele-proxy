@@ -865,6 +865,42 @@ describe("ledger admin route permission boundary", () => {
     expect(verifyDashboardAuthToken).toHaveBeenCalledWith("dashboard-session");
   });
 
+  it.each([
+    ["cached", { prompt_tokens_details: { cached_tokens: null } }],
+    ["cached", { prompt_tokens_details: { cached_tokens: "400" } }],
+    ["reasoning", { completion_tokens_details: { reasoning_tokens: null } }],
+    ["reasoning", { completion_tokens_details: { reasoning_tokens: -1 } }],
+  ])("serves valid aggregates with unknown pricing and persisted incomplete coverage for malformed %s subsets: %j", async (_category, details) => {
+    await attribute();
+    const price = await ledger.addTariff(tariff());
+    const reference = await ledger.addTariff(tariff({ basis: "reference" }));
+    const request = await ledger.startRequest({ authenticatedKeyId: "key-a" });
+    const attempt = await ledger.startAttempt(request.requestId, { provider: "openai", requestedModel: "priced-model" });
+    await ledger.finishAttempt(attempt.attemptId, { status: "success", usage: { ...USAGE, ...details } });
+    await ledger.finishRequest(request.requestId, { status: "success" });
+
+    const { GET } = await adminRoute(true);
+    const drilldown = await GET(new Request(`http://localhost/api/usage/ledger?requestId=${request.requestId}`));
+    expect(drilldown.status).toBe(200);
+    const { attempts } = await drilldown.json();
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]).toMatchObject({ attemptId: attempt.attemptId, status: "success",
+      inputTokens: 1000, outputTokens: 200, cachedInputTokens: null, reasoningTokens: null,
+      usageSource: "unknown", costStatus: "unknown", allowlistedRawUsage: USAGE,
+      priceSnapshotId: price.id, referencePriceSnapshotId: reference.id,
+      meteredCostEstimateMicros: null, apiEquivalentValueMicros: null,
+    });
+
+    const response = await GET(new Request("http://localhost/api/usage/ledger"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ requests: 1, attempts: 1,
+      coverage: { usageKnownAttempts: 0, usageUnknownAttempts: 1, costKnownAttempts: 0,
+        costUnknownAttempts: 1, requestComplete: 0, requestIncomplete: 1 },
+      totals: [{ currency: "USD", meteredCostEstimateMicros: null, apiEquivalentValueMicros: null }],
+      recentRequests: [{ requestId: request.requestId, finalStatus: "success", accountingCompleteness: "incomplete" }],
+    });
+  });
+
   it("rejects cross-origin writes even for an authenticated dashboard session", async () => {
     const { POST } = await adminRoute(true);
     const response = await POST(adminRequest({ action: "tariff", ...tariff() }, { origin: "https://attacker.example" }));

@@ -12,15 +12,17 @@ function processSSEMessage(msg, state) {
 
   const eventMatch = msg.match(/^event:\s*(.+)$/m);
   const dataMatch = msg.match(/^data:\s*(.+)$/m);
-  if (!eventMatch || !dataMatch) return;
-
-  const eventType = eventMatch[1].trim();
+  if (!dataMatch) return;
   const dataStr = dataMatch[1].trim();
   if (dataStr === "[DONE]") return;
 
   let parsed;
   try { parsed = JSON.parse(dataStr); }
   catch { return; }
+
+  // Some Responses-compatible upstreams send data-only SSE; the JSON type is
+  // the event discriminator when no explicit SSE event field is present.
+  const eventType = eventMatch?.[1].trim() || parsed?.type;
 
   if (eventType === "response.created") {
     state.responseId = parsed.response?.id || state.responseId;

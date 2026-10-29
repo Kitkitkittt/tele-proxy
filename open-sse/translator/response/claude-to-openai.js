@@ -73,6 +73,10 @@ export function claudeToOpenAIResponse(chunk, state) {
           }
         };
         state.toolCalls.set(chunk.index, toolCall);
+        if (block.input !== undefined) {
+          state.claudeToolInputs ??= new Map();
+          state.claudeToolInputs.set(chunk.index, block.input);
+        }
         results.push(createChunk(state, { tool_calls: [toolCall] }));
       }
       break;
@@ -110,6 +114,17 @@ export function claudeToOpenAIResponse(chunk, state) {
         state.serverToolBlockIndex = -1;
         break;
       }
+      const toolCall = state.toolCalls.get(chunk.index);
+      if (toolCall && toolCall.function.arguments === "" && state.claudeToolInputs?.has(chunk.index)) {
+        // Initial input is complete only when no argument fragments replaced it.
+        // Sending it at start would prepend {} to subsequent streamed JSON.
+        const argumentsJson = JSON.stringify(state.claudeToolInputs.get(chunk.index));
+        toolCall.function.arguments = argumentsJson;
+        results.push(createChunk(state, {
+          tool_calls: [{ index: toolCall.index, function: { arguments: argumentsJson } }]
+        }));
+      }
+      state.claudeToolInputs?.delete(chunk.index);
       state.textBlockStarted = false;
       state.thinkingBlockStarted = false;
       break;
@@ -172,13 +187,7 @@ export function claudeToOpenAIResponse(chunk, state) {
     case "message_stop": {
       if (!state.finishReasonSent) {
         const finishReason = state.finishReason || (state.toolCalls?.size > 0 ? OPENAI_FINISH.TOOL_CALLS : OPENAI_FINISH.STOP);
-        const usageObj = (state.usage && typeof state.usage === 'object') ? {
-          usage: {
-            prompt_tokens: state.usage.input_tokens || 0,
-            completion_tokens: state.usage.output_tokens || 0,
-            total_tokens: (state.usage.input_tokens || 0) + (state.usage.output_tokens || 0)
-          }
-        } : {};
+        const usageObj = state.usage ? { usage: toOpenAIUsage(state.usage, "claude") } : {};
         results.push({ ...createChunk(state, {}, finishReason), ...usageObj });
         state.finishReasonSent = true;
       }

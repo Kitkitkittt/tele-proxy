@@ -50,6 +50,26 @@ describe("GOLDEN response stream: Claude → OpenAI", () => {
     ];
     expect(runStream(FORMATS.CLAUDE, FORMATS.OPENAI, events)).toMatchSnapshot();
   });
+
+  it("emits the tool ID once for an initial input consumed by an OpenAI stream client", () => {
+    const state = initState(FORMATS.OPENAI);
+    const events = [
+      { type: "message_start", message: { id: "msg_1", model: "claude" } },
+      { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "call-1", name: "inspect", input: {} } },
+      { type: "content_block_stop", index: 0 },
+      { type: "message_delta", delta: { stop_reason: "tool_use" } },
+    ];
+    const toolDeltas = events.flatMap(event => JSON.parse(JSON.stringify(
+      translateResponse(FORMATS.CLAUDE, FORMATS.OPENAI, event, state) || []
+    )).flatMap(chunk => chunk.choices?.[0]?.delta?.tool_calls || []));
+    const accumulated = toolDeltas.reduce((result, delta) => ({
+      id: result.id + (delta.id || ""),
+      name: result.name + (delta.function?.name || ""),
+      arguments: result.arguments + (delta.function?.arguments || ""),
+    }), { id: "", name: "", arguments: "" });
+
+    expect(accumulated).toEqual({ id: "call-1", name: "inspect", arguments: "{}" });
+  });
 });
 
 describe("GOLDEN response stream: Gemini → OpenAI", () => {

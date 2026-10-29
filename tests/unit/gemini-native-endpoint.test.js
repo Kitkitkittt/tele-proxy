@@ -27,6 +27,7 @@ vi.mock("@/lib/localDb", () => ({
 const { GET } = await import("../../src/app/api/v1beta/models/route.js");
 const { POST } = await import("../../src/app/api/v1beta/models/[...path]/route.js");
 const { detectFormatByEndpoint, FORMATS } = await import("../../open-sse/translator/formats.js");
+const { initState, translateResponse } = await import("../../open-sse/translator/index.js");
 
 function makeGeminiRequest(path, body, headers = {}, signal) {
   return new Request(`https://router.test/v1beta/models/${path}`, {
@@ -294,6 +295,47 @@ describe("Gemini native v1beta endpoint", () => {
     const frame = JSON.parse((await response.text()).split("\r\n")[0].slice(6));
     expect(frame.candidates[0].content.parts).toEqual([{ functionCall: { id: "call-1", name: "inspect", args: { path: "." } } }]);
     expect(frame.usageMetadata.totalTokenCount).toBe(12);
+  });
+
+  it.each([
+    { input: {}, fragments: [], args: {} },
+    { input: { path: "." }, fragments: [], args: { path: "." } },
+    { input: {}, fragments: ['{"path":', '"."}'], args: { path: "." } },
+  ])("preserves Claude tool input through the real translator and Gemini stream: %j", async ({ input, fragments, args }) => {
+    const state = initState(FORMATS.OPENAI);
+    const events = [
+      { type: "message_start", message: { id: "msg-synthetic", model: "claude-synthetic" } },
+      { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "call-1", name: "inspect", input } },
+      ...fragments.map(partial_json => ({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json } })),
+      { type: "content_block_stop", index: 0 },
+      { type: "message_delta", delta: { stop_reason: "tool_use" } },
+      { type: "message_stop" },
+    ];
+    const wire = events.map(event => (translateResponse(FORMATS.CLAUDE, FORMATS.OPENAI, event, state) || [])
+      .map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join("")).join("");
+    mocks.handleChat.mockResolvedValueOnce(new Response(wire));
+    const response = await POST(makeGeminiRequest("quality:streamGenerateContent", { contents: [] }), { params: Promise.resolve({ path: ["quality:streamGenerateContent"] }) });
+    const frames = (await response.text()).split("\r\n\r\n").filter(Boolean).map(frame => JSON.parse(frame.slice(6)));
+    expect(frames.flatMap(frame => frame.candidates?.[0]?.content?.parts || [])).toEqual([
+      { functionCall: { id: "call-1", name: "inspect", args } },
+    ]);
+  });
+
+  it("rejects truncated Claude argument deltas instead of falling back to the initial empty input", async () => {
+    const state = initState(FORMATS.OPENAI);
+    const events = [
+      { type: "message_start", message: { id: "msg-synthetic", model: "claude-synthetic" } },
+      { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "call-1", name: "inspect", input: {} } },
+      { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: '{"path":' } },
+      { type: "content_block_stop", index: 0 },
+      { type: "message_delta", delta: { stop_reason: "max_tokens" } },
+      { type: "message_stop" },
+    ];
+    const wire = events.map(event => (translateResponse(FORMATS.CLAUDE, FORMATS.OPENAI, event, state) || [])
+      .map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join("")).join("");
+    mocks.handleChat.mockResolvedValueOnce(new Response(wire));
+    const response = await POST(makeGeminiRequest("quality:streamGenerateContent", { contents: [] }), { params: Promise.resolve({ path: ["quality:streamGenerateContent"] }) });
+    await expect(response.text()).rejects.toThrow("Upstream returned invalid tool arguments");
   });
 
   it("retains translated nonstream tool calls in Gemini output", async () => {

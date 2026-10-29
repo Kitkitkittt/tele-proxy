@@ -42,6 +42,14 @@ export function openaiToAntigravityResponse(chunk, state) {
     parts.push({ text: delta.content });
   }
 
+  // Gemini represents generated data-URI images as inlineData parts.
+  for (const image of Array.isArray(delta.images) ? delta.images : []) {
+    const url = image?.image_url?.url;
+    if (typeof url !== "string") continue;
+    const match = /^data:(image\/[^;,]+);base64,([\s\S]+)$/.exec(url);
+    if (match) parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
+  }
+
   // Accumulate tool calls silently (no emit until finish)
   if (delta.tool_calls) {
     for (const tc of delta.tool_calls) {

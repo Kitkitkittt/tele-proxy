@@ -19,6 +19,8 @@
 - Settle delayed Devin ACP prompts from native completion/cancellation events, preserve physical abort signals, and unregister database shutdown listeners when adapters close.
 - Preserve ordered OpenAI system/developer instructions in Gemini-native fields and reject non-text instruction shapes rather than silently discarding them; suppress Cursor decoded-frame/error debug logs at runtime in feature mode, even when `CURSOR_STREAM_DEBUG=1`.
 - Preserve native Gemini request structure and abort signals, correct cross-protocol translation and failover handling, and retain unknown provenance for malformed usage subsets.
+- Preserve Claude tool-start input on streamed Gemini responses, detect image-only combo output, and accept Responses SSE events identified by their JSON type.
+- Preserve malformed cache/reasoning usage markers through observation so ledger pricing remains unknown; cover project diagnostic authorization and attribution with isolated regressions.
 - Suppress Cursor protobuf debug logs in feature mode, including decoded tool names, while retaining feature-off debugging.
 
 ## Deployment limits

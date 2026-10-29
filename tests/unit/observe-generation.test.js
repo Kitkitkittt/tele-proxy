@@ -327,6 +327,28 @@ describe("observeGeneration format accounting", () => {
     expect(result.ends[0].usageComplete).toBe(true);
   });
 
+  it.each([
+    [{ prompt_tokens: 1000, completion_tokens: 200, prompt_tokens_details: { cached_tokens: "private upstream value" } }, { prompt_tokens: 1000, completion_tokens: 200, prompt_tokens_details: { cached_tokens: null } }],
+    [{ prompt_tokens: 1000, completion_tokens: 200, completion_tokens_details: { reasoning_tokens: -1 } }, { prompt_tokens: 1000, completion_tokens: 200, completion_tokens_details: { reasoning_tokens: null } }],
+    [{ input_tokens: 1000, output_tokens: 200, input_tokens_details: { cached_tokens: false } }, { input_tokens: 1000, output_tokens: 200, input_tokens_details: { cached_tokens: null } }],
+    [{ input_tokens: 1000, output_tokens: 200, output_tokens_details: { reasoning_tokens: { secret: 123 } } }, { input_tokens: 1000, output_tokens: 200, output_tokens_details: { reasoning_tokens: null } }],
+    [{ input_tokens: 1000, output_tokens: 200, cache_read_input_tokens: [] }, { input_tokens: 1000, output_tokens: 200, cache_read_input_tokens: null }],
+    [{ input_tokens: 1000, output_tokens: 200, cache_creation_input_tokens: -1 }, { input_tokens: 1000, output_tokens: 200, cache_creation_input_tokens: null }],
+    [{ promptTokenCount: 1000, candidatesTokenCount: 200, cachedContentTokenCount: "private upstream value" }, { promptTokenCount: 1000, candidatesTokenCount: 200, cachedContentTokenCount: null }],
+    [{ promptTokenCount: 1000, candidatesTokenCount: 200, thoughtsTokenCount: null }, { promptTokenCount: 1000, candidatesTokenCount: 200, thoughtsTokenCount: null }],
+  ])("preserves malformed subset presence without forwarding its content: %j", async (usage, sanitized) => {
+    const envelope = "promptTokenCount" in usage ? { usageMetadata: usage } : { usage };
+    for (const type of ["text/event-stream", "application/x-ndjson", "application/json"]) {
+      const raw = type === "text/event-stream" ? frame(envelope) + frame("[DONE]")
+        : type === "application/x-ndjson" ? JSON.stringify(envelope) + "\n[DONE]\n"
+          : JSON.stringify(envelope);
+      const result = observed(source([raw], type).response);
+      expect(await result.wrapped.text()).toBe(raw);
+      expect(result.usage).toEqual([[sanitized, undefined]]);
+      expect(result.ends[0]).toMatchObject({ status: "completed", usageComplete: true });
+    }
+  });
+
   it("handles an already aborted signal and cancelled HTTP errors without duplicate end", async () => {
     const signal = new AbortController();
     signal.abort(new DOMException("already gone", "AbortError"));

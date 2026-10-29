@@ -101,6 +101,20 @@ describe("OpenAI Responses usage across the pivot", () => {
     });
   });
 
+  it("preserves cached prompt and cumulative output usage when message_stop supplies the finish", async () => {
+    const chunks = CLAUDE_CHUNKS_WITH_USAGE.map(chunk => chunk.type === "message_delta"
+      ? { ...chunk, delta: {} }
+      : chunk);
+    const output = await runTransform(chunks, FORMATS.CLAUDE, "claude");
+
+    expect(completedResponse(output).usage).toEqual({
+      input_tokens: 13800,
+      output_tokens: 42,
+      total_tokens: 13842,
+      input_tokens_details: { cached_tokens: 12000 },
+    });
+  });
+
   // Codex deserializes usage into a struct whose three top-level counts are all
   // required, so dropping any one of them discards the whole object and leaves the
   // context gauge empty — the same end state as reporting nothing.

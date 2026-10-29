@@ -46,6 +46,7 @@ export function hasValuableContent(chunk, format) {
     return delta.content && delta.content !== "" ||
            delta.reasoning_content && delta.reasoning_content !== "" ||
            delta.tool_calls && delta.tool_calls.length > 0 ||
+           Array.isArray(delta.images) && delta.images.some((image) => typeof image?.image_url?.url === "string" && /^data:image\/[^;,]+;base64,[\s\S]+$/.test(image.image_url.url)) ||
            chunk.choices[0].finish_reason ||
            delta.role;
   }

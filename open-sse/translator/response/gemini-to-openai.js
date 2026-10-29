@@ -111,9 +111,9 @@ export function geminiToOpenAIResponse(chunk, state) {
         state.pendingThoughtSignature = null;
       }
 
-      // Inline data (images)
+      // OpenAI has no reasoning-image equivalent; never expose thought parts as output.
       const inlineData = part.inlineData || part.inline_data;
-      if (inlineData?.data) {
+      if (!isThought && inlineData?.data) {
         const mimeType = inlineData.mimeType || inlineData.mime_type || DEFAULT_IMAGE_MIME;
         results.push(buildChunk(
           chunkMeta(state),

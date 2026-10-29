@@ -28,17 +28,28 @@ function hasContent(value, depth = 0) {
         || (object(value.input) && Object.keys(value.input).length > 0)));
 }
 
-// Copy numeric usage and explicitly allowlisted provenance only. Arbitrary
-// upstream strings or content inside `usage` never reach accounting callbacks.
-function numericUsage(value, depth = 0) {
+const usageSubsets = {
+  "": ["cache_read_input_tokens", "cache_creation_input_tokens", "cachedContentTokenCount", "thoughtsTokenCount"],
+  prompt_tokens_details: ["cached_tokens"], input_tokens_details: ["cached_tokens"],
+  completion_tokens_details: ["reasoning_tokens"], output_tokens_details: ["reasoning_tokens"],
+};
+
+// Copy numeric usage and explicitly allowlisted provenance only. Invalid known
+// subsets retain a null marker so accounting cannot mistake them for absent/zero.
+// Arbitrary upstream strings or content never reach accounting callbacks.
+function numericUsage(value, depth = 0, parent = "") {
   if (!object(value) || depth > 3) return {};
   const result = {};
+  const subsets = depth <= 1 && Object.hasOwn(usageSubsets, parent) ? usageSubsets[parent] : null;
   for (const [key, entry] of Object.entries(value)) {
-    if (numeric(entry)) Object.defineProperty(result, key, { value: entry, enumerable: true, writable: true, configurable: true });
+    if (subsets?.includes(key) && !numeric(entry)) {
+      Object.defineProperty(result, key, { value: null, enumerable: true, writable: true, configurable: true });
+    }
+    else if (numeric(entry)) Object.defineProperty(result, key, { value: entry, enumerable: true, writable: true, configurable: true });
     else if (depth === 0 && key === "estimated" && entry === true) result.estimated = true;
     else if (depth === 0 && key === "source" && ["estimated", "reported"].includes(entry)) result.source = entry;
     else if (object(entry)) {
-      const nested = numericUsage(entry, depth + 1);
+      const nested = numericUsage(entry, depth + 1, key);
       if (Object.keys(nested).length) Object.defineProperty(result, key, { value: nested, enumerable: true, writable: true, configurable: true });
     }
   }
@@ -54,7 +65,7 @@ function completeUsage(usage) {
 /**
  * Transparent, demand-driven observation of a physical or final client Response.
  * Callbacks are optional, awaited, and isolated from inference failures.
- * onUsage(numericUsageWithOptionalEstimateProvenance, responseModel?) runs at most once, before onEnd.
+ * onUsage(sanitizedUsageWithOptionalEstimateProvenance, responseModel?) runs at most once, before onEnd.
  * onEnd({status, errorClass, cancelState, usageComplete, responseModel}) runs once
  * on EOF, read failure, cancellation, or signal abort, never merely on headers.
  * Status: completed | error | cancelled. Missing stream terminal is an error.
