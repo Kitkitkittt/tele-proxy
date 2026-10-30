@@ -107,3 +107,7 @@ graphify-out/*
 start-dev-silent.cjs
 debug.log
 .scratch/
+
+# Generated dev/build caches (Turbopack SST files exceed GitHub's 100 MB limit)
+.next-smoke-ui/
+.next-cli-build/
