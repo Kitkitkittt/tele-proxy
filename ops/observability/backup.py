@@ -87,7 +87,25 @@ else:
             parser.error('missing restore container: ' + item['service'])
         pending.append((src, cid, item['path']))
     # Check every archive/container before writing any destination volume.
+    # The project's own containers are stopped, so use a throwaway helper bound
+    # to the same volumes and extract with tar, as the service's user. `docker cp`
+    # cannot be used: it lchowns every restored path, and services mount read-only
+    # overlays inside their volume (Grafana's /var/lib/grafana/dashboards), so it
+    # aborts with "read-only file system". The helper reads the archive on stdout,
+    # so no tar binary is assumed inside the service images.
+    helper = 'debian:12-slim'
     for src, cid, path in pending:
+        user = run(['docker', 'inspect', '--format', '{{.Config.User}}', cid]) or '0:0'
+        mounts = []
+        for mount in json.loads(run(['docker', 'inspect', '--format', '{{json .Mounts}}', cid])):
+            if mount['Type'] == 'volume' and path.startswith(mount['Destination']):
+                mounts += ['-v', mount['Name'] + ':' + mount['Destination']]
+        if not mounts:
+            parser.error('restore target is not a named volume for ' + item['service'])
         with src.open('rb') as data:
-            subprocess.run(['docker', 'cp', '-a', '-', cid + ':' + path], stdin=data, check=True)
+            # --no-same-owner: existing volume files may be owned by another uid.
+            # --no-overwrite-dir: never chmod the destination root, which can be a
+            # mount point the service user does not own.
+            subprocess.run(['docker', 'run', '--rm', '-i', '--user', user, '--entrypoint', 'sh', *mounts, helper,
+                            '-c', 'mkdir -p "$1" && tar --no-same-owner --no-overwrite-dir -xf - -C "$1"', 'sh', path], stdin=data, check=True)
     print('Restored offline into isolated project. Validate integrity and reconciliation before promotion. No services started.')
