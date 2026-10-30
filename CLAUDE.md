@@ -1,0 +1,102 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+9Router (`9router-app`) — a local AI routing gateway + Next.js dashboard. It exposes one OpenAI-compatible endpoint (`/v1/*`) and routes traffic across 40+ upstream providers with format translation, model-combo fallback, multi-account fallback, OAuth/API-key credential management, token refresh, quota/usage tracking, and optional cloud sync.
+
+Two published artifacts live in this one repo:
+- The **dashboard + gateway** (root `package.json`, `9router-app`) — the Next.js server that does the actual routing.
+- The **CLI launcher** (`cli/`, published to npm as `9router`) — a separate package that installs/starts the server and manages the tray. It has its own `package.json`, version, and build.
+
+The code lives in `src/` (Next.js app + dashboard/compat APIs), `open-sse/` (the provider-agnostic routing/translation engine), `cli/` (the launcher package), and `tests/`.
+
+## Commands
+
+Dashboard/gateway (run from repo root):
+```bash
+cp .env.example .env
+npm install
+PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run dev   # dev (webpack, port 20127 by default via next dev)
+npm run build && PORT=20128 HOSTNAME=0.0.0.0 npm run start           # production
+```
+- Bun variants: `npm run dev:bun` / `build:bun` / `start:bun`.
+- Default runtime port is **20128** (dashboard at `/dashboard`, API at `/v1`).
+- Lint: `npx eslint .` (config `eslint.config.mjs`, extends `eslint-config-next`).
+
+CLI package (`cli/`):
+```bash
+npm run cli:pack       # build + npm pack from root
+cd cli && npm run dev  # nodemon watch
+```
+
+Tests (vitest, in `tests/`, an **independent** ESM package — not wired into root `npm test`):
+```bash
+npm install                             # ROOT deps first — tests import from src/ which needs `open`, `undici`, etc.
+cd tests && npm install                 # then tests' own deps (vitest) → tests/node_modules (allowed by tests/.gitignore)
+npx vitest run                          # all tests; auto-discovers tests/vitest.config.js
+npx vitest run unit/capabilities.test.js   # single file (path relative to tests/)
+```
+> The `tests/package.json` `test` script is plain `vitest run --reporter=verbose`, so `npm --prefix tests test -- --maxWorkers=1` and `npx vitest run …` from `tests/` are equivalent; `vitest.config.js` resolves the `open-sse`/`@/` aliases from the repo root regardless of where vitest lives.
+>
+> Default discovery is offline and deterministic. Live provider files are excluded unless `RUN_REAL=1`; local-proxy E2E needs `RUN_E2E=1`, the Antigravity cache test `AG_CACHE_TEST=1`, and `unit/embeddings.cloud.test.js` skips when the separate cloud worker package is absent. A plain checkout still has deterministic failures: judge each on its own evidence. `tests/__baseline__/known-fails.txt` is a historical triage record, not an acceptance threshold.
+
+- Regression baselines: `tests/__baseline__/verify-*.mjs` compare against committed snapshots (providers, aliases, OAuth URLs). Run these after touching provider registry / alias logic.
+
+## Architecture
+
+Two authoritative docs already exist — read them before working in these areas rather than re-deriving:
+- `docs/ARCHITECTURE.md` — full system: request lifecycle, combo/account fallback, OAuth + token refresh, cloud sync, data model.
+- `open-sse/AGENTS.md` — the routing/translation engine's own conventions and "how to add a provider/executor/translator". **Read this before editing anything under `open-sse/`.**
+
+### Request flow (the thing to understand first)
+`src/app/api/v1/*` route (Next rewrite maps `/v1/*` → `/api/v1/*` in `next.config.mjs`)
+→ `src/sse/handlers/chat.js` (parse, combo expansion, account-selection loop)
+→ `open-sse/handlers/chatCore.js` (detect source format, translate request, dispatch to executor, retry/refresh, stream setup)
+→ `open-sse/executors/*` (per-provider upstream call; `default.js` handles any OpenAI-compatible provider)
+→ `open-sse/translator/*` (client format ↔ provider format)
+→ SSE back to client.
+
+`src/sse/` is the app-side entry glue; `open-sse/` is the provider-agnostic engine (also usable standalone). Cross that boundary consciously.
+
+### Translator engine (`open-sse/translator/`)
+- Pivots through **OpenAI as the intermediate format**. A translator registered on an exact `source:target` pair (e.g. `claude:kiro`) runs as a **direct route**, skipping the lossy double-hop. Prefer a direct route for fragile pairs (thinking blocks, tool ids, non-base64 images, `is_error`).
+- Translators **self-register** via `register(from, to, reqFn, resFn)` as an import side effect — a new translator file MUST be imported in `open-sse/translator/index.js` or it never runs.
+- Never hardcode role/block/model strings — use `open-sse/translator/schema/` and `open-sse/config/` constants. Config-driven and DRY is enforced by convention here.
+
+### Provider registry (`open-sse/providers/registry/*`)
+- One file per provider. `providers/registry/index.js` is an **auto-generated** static import list — regenerate it with `scripts/migrate-registry.mjs` / `injectDisplayToRegistry.mjs`, don't hand-edit.
+- Add a provider: copy `providers/REGISTRY_TEMPLATE.js`, add models to `config/providerModels.js`. Only add an executor for non-OpenAI-compatible upstreams.
+
+### Persistence — IMPORTANT (ARCHITECTURE.md is stale here)
+State is **no longer `db.json`**. It's a SQLite layer under `src/lib/db/` with an adapter fallback chain (`driver.js`): `bun:sqlite` → `better-sqlite3` (optional native dep) → `node:sqlite` (Node ≥22.5) → `sql.js` (pure-JS fallback, always works). `better-sqlite3` is deliberately in `optionalDependencies` so install never fails without build tools.
+- `src/lib/localDb.js` is a **backward-compat shim** re-exporting `src/lib/db/index.js`. New code should import from `@/lib/db/index.js`; per-entity logic lives in `src/lib/db/repos/*`. Schema/migrations in `src/lib/db/migrations/`.
+- DB file location resolves via `src/lib/db/paths.js` (`DATA_DIR`, else `~/.9router/`).
+- Usage, recent logs and request details share the SQLite layer through `src/lib/usageDb.js`; they follow `DATA_DIR`. With `TELE_PROXY_ENABLED=1`, an absolute isolated directory is required and legacy raw request-detail capture is disabled.
+
+### RTK token saver (`open-sse/rtk/`)
+Pre-translate hooks that compress `tool_result` content in-place to cut tokens. **Fail-open**: any error returns null and leaves the body untouched — never throw out of them. Skips `is_error`/`status:"error"` results to preserve traces.
+
+## Conventions & gotchas
+
+- Plain JavaScript (ESM), no TypeScript. `@/*` path alias → `src/*` (`jsconfig.json`).
+- `custom-server.js` wraps the Next standalone server to derive client IP from the TCP socket and strip attacker-controlled `X-Forwarded-For` — trusting forwarding headers only from a loopback reverse proxy. Preserve this when touching request/IP/rate-limit code.
+- Security-sensitive env: `JWT_SECRET` (session cookie), `INITIAL_PASSWORD` (default `123456` — must override), `API_KEY_SECRET`, `MACHINE_ID_SALT`. Full env contract in `.env.example` and ARCHITECTURE.md's env matrix.
+- Binary/protobuf upstreams (kiro EventStream, cursor protobuf, commandcode NDJSON) don't round-trip through OpenAI — they're handled inside their own executor, not the translator.
+- **Security-first on PRs**: Security is the top priority when reviewing or creating PRs. Audit authentication, credential/token storage & leaks, header manipulation (`X-Forwarded-For`), and SSRF risks before functional logic. Always include explicit security warnings/notes when reporting PR reviews or changes to the user.
+- Versioning: root and `cli/` are versioned independently; changes are logged in `CHANGELOG.md`. Commit style is Conventional Commits (`fix(translator): …`, `feat(...)`).
+
+## Agent skills
+
+### Issue tracker
+
+Track work in GitHub Issues for `Kitkitkittt/tele-proxy`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the five default triage labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Use a single-context layout. See `docs/agents/domain.md`.

@@ -1,0 +1,146 @@
+groups:
+  - name: tele-proxy-availability
+    rules:
+      - alert: TeleProxyCanaryUnavailable
+        expr: up{job="tele-proxy-canary"} == 0 or absent(up{job="tele-proxy-canary"})
+        for: 2m
+        labels: {severity: critical, delivery: dashboard_only}
+        annotations:
+          summary: Canary metrics endpoint is unavailable
+          description: Scrape failed or disappeared. This detects reachability/authentication, not an upstream provider health check.
+          runbook_url: https://github.com/Kitkitkittt/tele-proxy/blob/codex/1-tele-proxy/ops/observability/runbooks.md#canary-unavailable
+      - alert: TeleProxyRequestFailureRate
+        expr: >-
+          (sum by (environment) (rate(nine_router_requests_total{outcome=~"error|incomplete"}[10m]))
+          / sum by (environment) (rate(nine_router_requests_total[10m])) > 0.10)
+          and on (environment) (sum by (environment) (increase(nine_router_requests_total[10m])) >= 20)
+        for: 5m
+        labels: {severity: warning, delivery: dashboard_only}
+        annotations:
+          summary: Sustained logical request failure exceeds 10 percent
+          description: Error or incomplete requests exceed 10 percent over 10 minutes with at least 20 requests; cancellations are not failures.
+          runbook_url: https://github.com/Kitkitkittt/tele-proxy/blob/codex/1-tele-proxy/ops/observability/runbooks.md#request-failures
+      - alert: TeleProxyTelemetryBackendUnavailable
+        expr: up{job=~"alloy|loki|grafana|node-exporter|prometheus"} == 0
+        for: 3m
+        labels: {severity: warning, delivery: dashboard_only}
+        annotations:
+          summary: 'Telemetry target {{ $labels.job }} is unavailable'
+          description: Metrics scrape failed. Inspect the target before assuming the whole service is down.
+          runbook_url: https://github.com/Kitkitkittt/tele-proxy/blob/codex/1-tele-proxy/ops/observability/runbooks.md#backend-unavailable
+  - name: tele-proxy-routing-accounting
+    rules:
+      - alert: TeleProxyElevatedFallbacks
+        expr: >-
+          (sum by (environment) (rate(nine_router_fallbacks_total[10m]))
+          / sum by (environment) (rate(nine_router_requests_total[10m])) > 0.20)
+          and on (environment) (sum by (environment) (increase(nine_router_requests_total[10m])) >= 20)
+        for: 5m
+        labels: {severity: warning, delivery: dashboard_only}
+        annotations:
+          summary: Fallback events exceed 0.2 per logical request
+          description: Multiple fallbacks can occur per request; this is an event ratio, not a request percentage.
+          runbook_url: https://github.com/Kitkitkittt/tele-proxy/blob/codex/1-tele-proxy/ops/observability/runbooks.md#fallbacks-and-rate-limits
+      - alert: TeleProxyUpstreamRateLimited
+        expr: >-
+          (sum by (environment, provider) (rate(nine_router_attempts_total{reason="rate_limit"}[10m]))
+          / sum by (environment, provider) (rate(nine_router_attempts_total[10m])) > 0.10)
+          and on (environment, provider) (sum by (environment, provider) (increase(nine_router_attempts_total[10m])) >= 20)
+        for: 5m
+        labels: {severity: warning, delivery: dashboard_only}
+        annotations:
+          summary: 'More than 10 percent of {{ $labels.provider }} attempts are rate limited'
+          description: At least 20 attempts in 10 minutes with sustained rate-limit failures; do not bypass provider quotas.
+          runbook_url: https://github.com/Kitkitkittt/tele-proxy/blob/codex/1-tele-proxy/ops/observability/runbooks.md#fallbacks-and-rate-limits
+      - alert: TeleProxyMissingUsage
+        expr: >-
+          (sum by (environment) (rate(nine_router_usage_unknown_total[15m]))
+          / sum by (environment) (rate(nine_router_attempts_total[15m])) > 0.05)
+          and on (environment) (sum by (environment) (increase(nine_router_attempts_total[15m])) >= 20)
+        for: 5m
+        labels: {severity: warning, delivery: dashboard_only}
+        annotations:
+          summary: More than 5 percent of finalized attempts lack complete usage
+          description: Usage coverage is incomplete. Unknown usage or cost must not be treated as zero.
+          runbook_url: https://github.com/Kitkitkittt/tele-proxy/blob/codex/1-tele-proxy/ops/observability/runbooks.md#missing-usage
+      - alert: TeleProxyPolicyApplicationFailure
+        expr: sum by (environment, reason) (increase(nine_router_policy_application_failures_total[5m])) > 0
+        for: 0m
+        labels: {severity: critical, delivery: dashboard_only}
+        annotations:
+          summary: Combo policy application failed
+          description: Inspect the required-policy failure and confirm no upstream dispatch occurred for blocked attempts. Never disable required policy to suppress the alert.
+          runbook_url: https://github.com/Kitkitkittt/tele-proxy/blob/codex/1-tele-proxy/ops/observability/runbooks.md#policy-failure
+      - alert: TeleProxyLedgerWriteFailure
+        expr: sum by (environment) (increase(nine_router_ledger_write_failures_total[5m])) > 0
+        for: 0m
+        labels: {severity: critical, delivery: dashboard_only}
+        annotations:
+          summary: Durable accounting write failed
+          description: The ledger may be incomplete. Operational counters cannot reconstruct authoritative charges.
+          runbook_url: https://github.com/Kitkitkittt/tele-proxy/blob/codex/1-tele-proxy/ops/observability/runbooks.md#ledger-write-failure
+  - name: tele-proxy-capacity-export
+    rules:
+      - alert: TeleProxyStorageLow
+        expr: >-
+          (node_filesystem_avail_bytes{job="node-exporter",mountpoint="/storage",fstype!~"tmpfs|overlay|squashfs"}
+          / node_filesystem_size_bytes{job="node-exporter",mountpoint="/storage",fstype!~"tmpfs|overlay|squashfs"}) < 0.15
+        for: 10m
+        labels: {severity: warning, delivery: dashboard_only}
+        annotations:
+          summary: Canary volume backing filesystem has less than 15 percent free
+          description: /storage is the canary data volume. Capacity is backing filesystem capacity, not a per-volume quota or every telemetry volume.
+          runbook_url: https://github.com/Kitkitkittt/tele-proxy/blob/codex/1-tele-proxy/ops/observability/runbooks.md#disk-pressure
+      - alert: TeleProxyStorageCritical
+        expr: >-
+          node_filesystem_avail_bytes{job="node-exporter",mountpoint="/storage",fstype!~"tmpfs|overlay|squashfs"} < 1073741824
+        for: 5m
+        labels: {severity: critical, delivery: dashboard_only}
+        annotations:
+          summary: Canary volume backing filesystem has less than 1 GiB available
+          description: Protect ledger writes and capture capacity evidence; never delete production or unrelated volumes.
+          runbook_url: https://github.com/Kitkitkittt/tele-proxy/blob/codex/1-tele-proxy/ops/observability/runbooks.md#disk-pressure
+      - alert: TeleProxyStorageMetricsMissing
+        expr: absent(node_filesystem_size_bytes{job="node-exporter",mountpoint="/storage"})
+        for: 10m
+        labels: {severity: warning, delivery: dashboard_only}
+        annotations:
+          summary: Canary storage filesystem metrics are absent
+          description: Disk alerts are blind until node-exporter exposes the /storage mount. Verify mount visibility and collector configuration.
+          runbook_url: https://github.com/Kitkitkittt/tele-proxy/blob/codex/1-tele-proxy/ops/observability/runbooks.md#disk-pressure
+      - alert: TeleProxyTelemetryDrops
+        expr: sum by (environment, reason) (increase(nine_router_telemetry_dropped_total[5m])) > 0
+        for: 0m
+        labels: {severity: warning, delivery: dashboard_only}
+        annotations:
+          summary: Gateway telemetry was dropped
+          description: Export or log queues dropped records. Inference must remain available; the durable ledger is independent.
+          runbook_url: https://github.com/Kitkitkittt/tele-proxy/blob/codex/1-tele-proxy/ops/observability/runbooks.md#export-drops
+      - alert: TeleProxyExportQueueBacklog
+        expr: min_over_time(nine_router_export_queue_size[5m]) > 0
+        for: 5m
+        labels: {severity: warning, delivery: dashboard_only}
+        annotations:
+          summary: Gateway export queue has not drained for 10 minutes
+          description: Queue stayed nonempty across the lookback and pending interval. Investigate collector availability before raising bounded queue limits.
+          runbook_url: https://github.com/Kitkitkittt/tele-proxy/blob/codex/1-tele-proxy/ops/observability/runbooks.md#export-drops
+      - alert: TeleProxyCollectorExportFailure
+        expr: >-
+          sum(increase(otelcol_exporter_send_failed_spans_total{job="alloy"}[5m])
+          or increase(otelcol_exporter_send_failed_spans{job="alloy"}[5m])) > 0
+        for: 2m
+        labels: {severity: warning, delivery: dashboard_only}
+        annotations:
+          summary: Alloy failed to export spans
+          description: Failed sends can be retried; this is not a permanent-loss count. Check Langfuse connectivity and authentication without dumping headers.
+          runbook_url: https://github.com/Kitkitkittt/tele-proxy/blob/codex/1-tele-proxy/ops/observability/runbooks.md#export-drops
+      - alert: TeleProxyCollectorEnqueueFailure
+        expr: >-
+          sum(increase(otelcol_exporter_enqueue_failed_spans_total{job="alloy"}[5m])
+          or increase(otelcol_exporter_enqueue_failed_spans{job="alloy"}[5m])) > 0
+        for: 0m
+        labels: {severity: warning, delivery: dashboard_only}
+        annotations:
+          summary: Alloy could not enqueue spans
+          description: Collector export queue rejected spans. Preserve bounded queues and restore backend health; do not interrupt inference to preserve traces.
+          runbook_url: https://github.com/Kitkitkittt/tele-proxy/blob/codex/1-tele-proxy/ops/observability/runbooks.md#export-drops

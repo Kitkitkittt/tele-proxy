@@ -1,0 +1,200 @@
+# Merge after ops/observability/compose.yaml; paths and .env resolve there.
+x-service: &service
+  profiles: [llm-observability]
+  restart: unless-stopped
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  pids_limit: 256
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+  stop_grace_period: 60s
+
+x-langfuse-env: &langfuse-env
+  DATABASE_URL: postgresql://langfuse:${LF_POSTGRES_PASSWORD:?Run observability bootstrap}@postgres:5432/langfuse
+  NEXTAUTH_URL: http://127.0.0.1:20300
+  SALT: ${LF_SALT:?Run observability bootstrap}
+  ENCRYPTION_KEY: ${LF_ENCRYPTION_KEY:?Run observability bootstrap}
+  TELEMETRY_ENABLED: "false"
+  CLICKHOUSE_URL: http://clickhouse:8123
+  CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+  CLICKHOUSE_USER: langfuse
+  CLICKHOUSE_PASSWORD: ${LF_CLICKHOUSE_PASSWORD:?Run observability bootstrap}
+  CLICKHOUSE_DB: default
+  CLICKHOUSE_CLUSTER_ENABLED: "false"
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_AUTH: ${LF_REDIS_PASSWORD:?Run observability bootstrap}
+  REDIS_TLS_ENABLED: "false"
+  LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+  LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${LF_S3_ACCESS_KEY:?Run observability bootstrap}
+  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LF_S3_SECRET_KEY:?Run observability bootstrap}
+  LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_BATCH_EXPORT_ENABLED: "false"
+  LANGFUSE_MIGRATION_V4_WRITE_MODE: events_only
+  LANGFUSE_MIGRATION_V4_NATIVE_OTEL_BEHAVIOUR: direct
+  LANGFUSE_MIGRATION_V4_ALLOW_PREVIEW_OPT_IN: "true"
+
+x-langfuse-dependencies: &langfuse-dependencies
+  postgres:
+    condition: service_healthy
+  clickhouse:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+  minio:
+    condition: service_healthy
+
+services:
+  langfuse-web:
+    <<: *service
+    image: docker.io/langfuse/langfuse:4.0.0@sha256:8ac1876c688ee15090950d56c36ed1db2632167854224f44f52806469424d7c8
+    cpus: 1
+    mem_limit: 1g
+    depends_on: *langfuse-dependencies
+    ports: ["127.0.0.1:20300:3000"]
+    environment:
+      <<: *langfuse-env
+      HOSTNAME: 0.0.0.0
+      NEXTAUTH_SECRET: ${LF_NEXTAUTH_SECRET:?Run observability bootstrap}
+      AUTH_DISABLE_SIGNUP: "true"
+      LANGFUSE_INIT_ORG_ID: tele-proxy
+      LANGFUSE_INIT_ORG_NAME: Tele Proxy
+      LANGFUSE_INIT_PROJECT_ID: tele-proxy-observability
+      LANGFUSE_INIT_PROJECT_NAME: Tele Proxy Observability
+      # Requested policy; enforcement requires a self-hosted Enterprise license.
+      LANGFUSE_INIT_PROJECT_RETENTION: "7"
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LF_PUBLIC_KEY:?Run observability bootstrap}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LF_SECRET_KEY:?Run observability bootstrap}
+      LANGFUSE_INIT_USER_EMAIL: ${LF_ADMIN_EMAIL:?Run observability bootstrap}
+      LANGFUSE_INIT_USER_NAME: Observability Admin
+      LANGFUSE_INIT_USER_PASSWORD: ${LF_ADMIN_PASSWORD:?Run observability bootstrap}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/public/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+
+  langfuse-worker:
+    <<: *service
+    image: docker.io/langfuse/langfuse-worker:4.0.0@sha256:556f9cdc115f0c99a3562537d58c5e591218638dbad2d45f2e587da9774a4888
+    cpus: 1
+    mem_limit: 2g
+    depends_on: *langfuse-dependencies
+    environment:
+      <<: *langfuse-env
+      HOSTNAME: 0.0.0.0
+      PORT: "3030"
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3030/api/health?failIfEventPropagationStuck=true&failIfQueueConsumptionStuck=true').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+
+  postgres:
+    <<: *service
+    image: docker.io/postgres:17.7-alpine@sha256:bb377b7239d2774ac8cc76f481596ce96c5a6b5e9d141f6d0a0ee371a6e7c0f2
+    user: postgres
+    cpus: 0.5
+    mem_limit: 512m
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_DB: langfuse
+      POSTGRES_PASSWORD: ${LF_POSTGRES_PASSWORD:?Run observability bootstrap}
+      TZ: UTC
+      PGTZ: UTC
+    command: [postgres, -c, shared_buffers=128MB, -c, max_connections=100, -c, max_wal_size=512MB]
+    volumes: [lf_postgres_data:/var/lib/postgresql/data]
+    tmpfs: ["/tmp:size=64m", "/var/run/postgresql:size=16m,mode=1777"]
+    healthcheck:
+      test: [CMD, pg_isready, -U, langfuse, -d, langfuse]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  clickhouse:
+    <<: *service
+    image: docker.io/clickhouse/clickhouse-server:25.12@sha256:8a790dd3468db22b1d4e7b18a176f378ff5ff6053b9c48dd4ea1fa71a24c5ba6
+    user: "101:101"
+    cpus: 2
+    mem_limit: 4g
+    pids_limit: 512
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: ${LF_CLICKHOUSE_PASSWORD:?Run observability bootstrap}
+    volumes:
+      - lf_clickhouse_data:/var/lib/clickhouse
+      - ./langfuse/clickhouse.xml:/etc/clickhouse-server/config.d/observability.xml:ro
+    tmpfs: ["/var/log/clickhouse-server:size=64m,uid=101,gid=101", "/tmp:size=128m,uid=101,gid=101"]
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: [CMD-SHELL, 'clickhouse-client --user langfuse --password "$${CLICKHOUSE_PASSWORD}" --query "SELECT 1"']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  redis:
+    <<: *service
+    image: docker.io/redis:7.4.7-alpine@sha256:02f2cc4882f8bf87c79a220ac958f58c700bdec0dfb9b9ea61b62fb0e8f1bfcf
+    user: redis
+    cpus: 0.25
+    mem_limit: 384m
+    environment:
+      REDISCLI_AUTH: ${LF_REDIS_PASSWORD:?Run observability bootstrap}
+    command: [sh, -ec, 'exec redis-server --requirepass "$$REDISCLI_AUTH" --maxmemory 256mb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec --auto-aof-rewrite-percentage 100 --auto-aof-rewrite-min-size 64mb --save ""']
+    volumes: [lf_redis_data:/data]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  minio:
+    <<: *service
+    image: cgr.dev/chainguard/minio@sha256:a1d2b3516a41296510f7fb49184c18b88287fa8f35cf3ce5c047289053b94964
+    user: "65532:65532"
+    cpus: 0.5
+    mem_limit: 512m
+    read_only: true
+    entrypoint: [/usr/bin/sh, /etc/langfuse/minio-start.sh]
+    environment:
+      MINIO_ROOT_USER: ${LF_S3_ACCESS_KEY:?Run observability bootstrap}
+      MINIO_ROOT_PASSWORD: ${LF_S3_SECRET_KEY:?Run observability bootstrap}
+      MINIO_BROWSER: "off"
+      MINIO_REGION_NAME: us-east-1
+      MC_CONFIG_DIR: /tmp/mc
+    volumes:
+      - lf_minio_data:/data
+      - ./langfuse/minio-start.sh:/etc/langfuse/minio-start.sh:ro
+      - ./langfuse/lifecycle.json:/etc/langfuse/lifecycle.json:ro
+    tmpfs: ["/tmp:size=64m,uid=65532,gid=65532,mode=700"]
+    healthcheck:
+      test: [CMD, /usr/bin/sh, -ec, 'test -f /tmp/langfuse-bucket-ready && mc ready local']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+volumes:
+  lf_postgres_data:
+  lf_clickhouse_data:
+  lf_redis_data:
+  lf_minio_data:
+
+networks:
+  default:
+    name: tele-proxy-observability

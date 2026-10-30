@@ -1,0 +1,11 @@
+{
+  "Rules": [
+    {
+      "ID": "expire-otlp-raw-events-after-seven-days",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "events/" },
+      "Expiration": { "Days": 7 },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+    }
+  ]
+}

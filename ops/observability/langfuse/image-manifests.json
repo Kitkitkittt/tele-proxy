@@ -1,0 +1,58 @@
+{
+  "queried_at": "2026-10-27",
+  "method": "Registry V2 HTTP GET manifest index with Bearer pull token; Docker-Content-Digest response header and platform descriptors; no Docker daemon",
+  "accept": "application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json",
+  "images": [
+    {
+      "repository": "docker.io/langfuse/langfuse",
+      "queried_tag": "4.0.0",
+      "source": "https://registry-1.docker.io/v2/langfuse/langfuse/manifests/4.0.0",
+      "index_digest": "sha256:8ac1876c688ee15090950d56c36ed1db2632167854224f44f52806469424d7c8",
+      "linux/amd64": "sha256:fb4e4b2839997ad82e3163d602164e27da2078eb07251091901a3682d4e52ef4",
+      "linux/arm64": "sha256:53655c0161def827b8a879e7849cd3f1a4310d40284c61e63a00472b86e18704"
+    },
+    {
+      "repository": "docker.io/langfuse/langfuse-worker",
+      "queried_tag": "4.0.0",
+      "source": "https://registry-1.docker.io/v2/langfuse/langfuse-worker/manifests/4.0.0",
+      "index_digest": "sha256:556f9cdc115f0c99a3562537d58c5e591218638dbad2d45f2e587da9774a4888",
+      "linux/amd64": "sha256:28a3a9afc5471dd43a98b7711ef5483ede457e5d13fc7ac4a9b03c2e328c982e",
+      "linux/arm64": "sha256:b1fd91ce16f9456cb6c52b89818567031d9a6c635852dc25c892b65d4916ad67"
+    },
+    {
+      "repository": "docker.io/library/postgres",
+      "queried_tag": "17.7-alpine",
+      "source": "https://registry-1.docker.io/v2/library/postgres/manifests/17.7-alpine",
+      "index_digest": "sha256:bb377b7239d2774ac8cc76f481596ce96c5a6b5e9d141f6d0a0ee371a6e7c0f2",
+      "linux/amd64": "sha256:a6d31f853205ce20d399df4e33a0b4c715672f232f4ee7440499747e6e02c126",
+      "linux/arm64/v8": "sha256:14b9e8eea0d2425bc2e02db4b0a0c5837663891cd1177d2be4df0f704e8d7fce"
+    },
+    {
+      "repository": "docker.io/clickhouse/clickhouse-server",
+      "queried_tag": "25.12",
+      "source": "https://registry-1.docker.io/v2/clickhouse/clickhouse-server/manifests/25.12",
+      "index_digest": "sha256:8a790dd3468db22b1d4e7b18a176f378ff5ff6053b9c48dd4ea1fa71a24c5ba6",
+      "linux/amd64": "sha256:8ecb92fa564142a2bad5fef7b39f89af7265ddbfd782693b15f002ca0f70be14",
+      "linux/arm64": "sha256:0d643ec0036ceb52ae65e5d8465e155ad6069d771f33a79a9e71dc4334e029e6"
+    },
+    {
+      "repository": "docker.io/library/redis",
+      "queried_tag": "7.4.7-alpine",
+      "source": "https://registry-1.docker.io/v2/library/redis/manifests/7.4.7-alpine",
+      "index_digest": "sha256:02f2cc4882f8bf87c79a220ac958f58c700bdec0dfb9b9ea61b62fb0e8f1bfcf",
+      "linux/amd64": "sha256:b9f6cf0cab55fdd102fd2182deeae150457943d33439d18c6e2fc5666d3228c1",
+      "linux/arm64/v8": "sha256:eaa5baba4031beadea0a970d578807f96ff6caf9282f1878f316059ed889a178"
+    },
+    {
+      "repository": "cgr.dev/chainguard/minio",
+      "queried_tag": "latest",
+      "source": "https://cgr.dev/v2/chainguard/minio/manifests/latest",
+      "index_digest": "sha256:a1d2b3516a41296510f7fb49184c18b88287fa8f35cf3ce5c047289053b94964",
+      "linux/amd64": "sha256:6ee2ed9917a1226d50069ae134202ad5bbf4485fdae7a8a1b49ea2d0ef8ec44c",
+      "linux/arm64": "sha256:e0cf6513d29d043e6048d0b9df2b7eecdefba3b192dc764514ac3bd3bfd7717b",
+      "image_config_created": "2026-10-26T20:33:29Z",
+      "image_config_user": "65532",
+      "amd64_registry_layer_files_observed": ["usr/bin/minio", "usr/bin/mc", "usr/bin/sh", "usr/bin/mkdir", "usr/bin/sleep", "usr/bin/touch"]
+    }
+  ]
+}

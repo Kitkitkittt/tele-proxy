@@ -1,0 +1,553 @@
+{
+  "id": null,
+  "uid": "tele-proxy-usage",
+  "title": "Tele Proxy \u00b7 Usage and spend coverage",
+  "description": "Provisioned operational telemetry. The durable ledger is authoritative for accounting; Prometheus is not billing. No notification delivery is enabled.",
+  "tags": [
+    "tele-proxy",
+    "canary"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "editable": false,
+  "graphTooltip": 1,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "label": "Environment",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(up{job=\"tele-proxy-canary\"}, environment)",
+        "query": {
+          "query": "label_values(up{job=\"tele-proxy-canary\"}, environment)",
+          "refId": "environment"
+        },
+        "refresh": 1,
+        "multi": false,
+        "includeAll": false,
+        "current": {
+          "selected": false,
+          "text": "canary",
+          "value": "canary"
+        },
+        "options": []
+      }
+    ]
+  },
+  "links": [
+    {
+      "title": "Tele Proxy dashboards",
+      "type": "dashboards",
+      "tags": [
+        "tele-proxy"
+      ],
+      "asDropdown": true,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "Authoritative usage / multi-basis costs",
+      "type": "link",
+      "url": "http://127.0.0.1:20280/dashboard/usage",
+      "targetBlank": true
+    },
+    {
+      "title": "Prometheus alerts / runbook annotations",
+      "type": "link",
+      "url": "http://127.0.0.1:20900/alerts",
+      "targetBlank": true
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Accounting authority and spend coverage",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 6
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "[Open the authenticated gateway usage ledger](http://127.0.0.1:20280/dashboard/usage). `GET /api/usage/ledger` exposes known/unknown usage and cost coverage, currency totals in **Micros** across **reported**, **reconciled**, **metered**, **reference**, **subscription**, and **local** bases, and fixed fees. Divide Micros by 1,000,000 only within the same currency; never sum currencies or different bases. Subscription fixed fees are period costs, not per-request charges. Reference value is not cash spend or guaranteed savings. Grafana intentionally does not scrape the admin API or derive billing from counters. Project attribution and per-combo token/cost breakdowns live in the ledger; those labels are not exported."
+      }
+    },
+    {
+      "id": 2,
+      "title": "Logical requests by combo / outcome",
+      "description": "Finalized logical requests, once per request. In-flight requests are not finalized yet.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (combo,outcome) (rate(nine_router_requests_total{environment=~\"$environment\",job=\"tele-proxy-canary\"}[5m]))",
+          "legendFormat": "{{combo}} \u00b7 {{outcome}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Finalized upstream attempts by provider",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (provider,outcome) (rate(nine_router_attempts_total{environment=~\"$environment\",job=\"tele-proxy-canary\"}[5m]))",
+          "legendFormat": "{{provider}} \u00b7 {{outcome}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Unknown usage fraction of finalized attempts",
+      "description": "One unknown increment per finalized attempt lacking complete input/output usage. No traffic is undefined, not proof of complete usage. This is operational window coverage; durable coverage is in the ledger.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((sum by (environment) (rate(nine_router_usage_unknown_total{environment=~\"$environment\",job=\"tele-proxy-canary\"}[15m])) or on (environment) (0 * sum by (environment) (rate(nine_router_attempts_total{environment=~\"$environment\",job=\"tele-proxy-canary\"}[15m])))) / sum by (environment) (rate(nine_router_attempts_total{environment=~\"$environment\",job=\"tele-proxy-canary\"}[15m])))",
+          "legendFormat": "{{environment}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Unknown usage events by provider",
+      "description": "",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (provider) (increase(nine_router_usage_unknown_total{environment=~\"$environment\",job=\"tele-proxy-canary\"}[$__rate_interval]))",
+          "legendFormat": "{{provider}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Inclusive input and output token rate",
+      "description": "Reported/normalized token counts across all attempts, including unsuccessful attempts. Input/output are inclusive. No user/project/cost labels.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (provider,type) (rate(nine_router_tokens_total{environment=~\"$environment\",job=\"tele-proxy-canary\",type=~\"input|output\"}[5m]))",
+          "legendFormat": "{{provider}} \u00b7 {{type}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "tps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Cache / reasoning details \u2014 not additive totals",
+      "description": "Cached input and reasoning can be subsets of inclusive input/output. Do not add these series to inclusive totals or infer tariffs.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 22,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (provider,type) (rate(nine_router_tokens_total{environment=~\"$environment\",job=\"tele-proxy-canary\",type=~\"cached_input|cache_write|reasoning\"}[5m]))",
+          "legendFormat": "{{provider}} \u00b7 {{type}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "tps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Ledger write failures",
+      "description": "Any nonzero value means authoritative accounting needs investigation.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (environment) (increase(nine_router_ledger_write_failures_total{environment=~\"$environment\",job=\"tele-proxy-canary\"}[15m]))",
+          "legendFormat": "{{environment}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Attempt amplification",
+      "description": "Finalized attempts / finalized logical requests; windows can differ while requests are active. Not a spend multiplier.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 30,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((sum by (environment) (rate(nine_router_attempts_total{environment=~\"$environment\",job=\"tele-proxy-canary\"}[10m])) or on (environment) (0 * sum by (environment) (rate(nine_router_requests_total{environment=~\"$environment\",job=\"tele-proxy-canary\"}[10m])))) / sum by (environment) (rate(nine_router_requests_total{environment=~\"$environment\",job=\"tele-proxy-canary\"}[10m])))",
+          "legendFormat": "{{environment}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "Pending / firing alerts \u2014 notifications disabled",
+      "description": "Prometheus evaluates checked-in rules; no notification delivery is configured. Open Prometheus /alerts for annotations.",
+      "type": "table",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "ALERTS{alertstate=~\"pending|firing\"}",
+          "legendFormat": "{{alertname}} \u00b7 {{alertstate}}",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      }
+    }
+  ]
+}

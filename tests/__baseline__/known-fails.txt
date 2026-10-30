@@ -1,0 +1,13 @@
+# Historical baseline artifacts are retained for provenance, not acceptance.
+# Checkpoint 85dcbe99 offline run: 422 file entries; 4,610 passed, 0 failed,
+# 52 skipped/pending and 1 todo. No collection failures.
+# Live .real/.live files require RUN_REAL=1. Cloud-worker cases skip when its
+# separate checkout is absent; real conversion cases require ffmpeg.
+# Those counts missed a real raw-key stats disclosure after its source-text
+# assertion was removed. They do not qualify secrecy or unchanged security
+# coverage. Behavioral 24h/7d serialization checks now replace source matching.
+# The dead lowdb benchmark is not counted as passing behavior. Skips are not passes.
+# Corrective run: 422 file entries; 4,608 passed, 0 failed/collection failures,
+# 52 skipped/pending, 1 todo. Both behavioral serialization cases pass.
+# Exact isolation, candidate artifact and failed performance gate are recorded
+# in docs/observability/TEST_REPORT.md. No deterministic failures are allowed.

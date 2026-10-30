@@ -1,0 +1,166 @@
+name: tele-proxy-observability
+x-runtime: &runtime
+  restart: unless-stopped
+  init: true
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  logging:
+    driver: local
+    options: {max-size: 10m, max-file: '3'}
+services:
+  canary:
+    <<: *runtime
+    profiles: [canary]
+    image: ${TELE_PROXY_IMAGE:?Set immutable locally built tele-proxy image digest}
+    user: '1000:1000'
+    entrypoint: [node, custom-server.js]
+    ports: ['127.0.0.1:20280:20128']
+    environment:
+      PORT: '20128'
+      HOSTNAME: 0.0.0.0
+      HOME: /app/data-home
+      DATA_DIR: /app/data
+      NEXT_PUBLIC_BASE_URL: http://127.0.0.1:20280
+      BASE_URL: http://127.0.0.1:20280
+      TELE_PROXY_ENABLED: '1'
+      TELE_PROXY_ENVIRONMENT: canary
+      TELE_PROXY_METRICS_TOKEN: ${METRICS_TOKEN:?Run bootstrap.py}
+      TELE_PROXY_LOG_FILE: /app/logs/gateway.jsonl
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://alloy:4318/v1/traces
+      OTEL_SERVICE_NAME: tele-proxy-canary
+      JWT_SECRET: ${CANARY_JWT_SECRET:?Run bootstrap.py}
+      INITIAL_PASSWORD: ${CANARY_ADMIN_PASSWORD:?Run bootstrap.py}
+      API_KEY_SECRET: ${CANARY_API_KEY_SECRET:?Run bootstrap.py}
+      MACHINE_ID_SALT: ${CANARY_MACHINE_ID_SALT:?Run bootstrap.py}
+      NEXT_TELEMETRY_DISABLED: '1'
+    volumes: [canary-data:/app/data, canary-home:/app/data-home, ./state/logs:/app/logs]
+    mem_limit: 1536m
+    cpus: 1.5
+    pids_limit: 256
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:20128/api/metrics',{headers:{Authorization:'Bearer '+process.env.TELE_PROXY_METRICS_TOKEN}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+  prometheus:
+    <<: *runtime
+    profiles: [monitoring]
+    image: prom/prometheus:v3.4.2@sha256:3b1d5be5c3eef4f027665ddaa3b1a7de8a58d96a0a6de5dd45629afd267ecaf0
+    command: [--config.file=/etc/prometheus/prometheus.yml, --storage.tsdb.path=/prometheus, --storage.tsdb.retention.time=14d, --storage.tsdb.retention.size=4GB, --web.listen-address=0.0.0.0:9090]
+    ports: ['127.0.0.1:20900:9090']
+    volumes: [./prometheus:/etc/prometheus:ro, prometheus-data:/prometheus]
+    secrets: [metrics-token]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    mem_limit: 768m
+    cpus: 1
+    pids_limit: 128
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:9090/-/ready]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  grafana:
+    <<: *runtime
+    profiles: [monitoring]
+    image: grafana/grafana:12.0.2@sha256:b5b59bfc7561634c2d7b136c4543d702ebcc94a3da477f21ff26f89ffd4214fa
+    ports: ['127.0.0.1:20301:3000']
+    environment:
+      GF_SECURITY_ADMIN_USER: teleproxy-admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana-password
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      GF_METRICS_ENABLED: 'true'
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+      GF_SERVER_ROOT_URL: http://localhost:20301
+    secrets: [grafana-password]
+    volumes: [./grafana/provisioning:/etc/grafana/provisioning:ro, ./grafana/dashboards:/var/lib/grafana/dashboards:ro, grafana-data:/var/lib/grafana]
+    mem_limit: 512m
+    cpus: 0.75
+    pids_limit: 128
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:3000/api/health]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  loki:
+    <<: *runtime
+    profiles: [monitoring]
+    image: grafana/loki:3.5.1@sha256:a74594532eec4cc313401beedc4dd2708c43674c032084b1aeb87c14a5be1745
+    command: [-config.file=/etc/loki/config.yaml]
+    ports: ['127.0.0.1:20310:3100']
+    volumes: [./loki:/etc/loki:ro, loki-data:/loki]
+    mem_limit: 768m
+    cpus: 1
+    pids_limit: 128
+    healthcheck:
+      test: [CMD, /busybox/wget, -q, -O, /dev/null, http://127.0.0.1:3100/ready]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+  alloy:
+    <<: *runtime
+    profiles: [monitoring]
+    image: grafana/alloy:v1.9.2@sha256:5039cc7a3cbde07120e757decc40f8f55f82c9bd0db45892a8b0e0c9a3371f4b
+    user: '473:473'
+    command: [run, /etc/alloy/config.alloy, --storage.path=/var/lib/alloy/data, --server.http.listen-addr=0.0.0.0:12345]
+    ports: ['127.0.0.1:20418:4318', '127.0.0.1:20345:12345']
+    environment:
+      LANGFUSE_OTLP_AUTH: ${LANGFUSE_OTLP_AUTH:?Run bootstrap.py}
+    volumes: [./alloy:/etc/alloy:ro, alloy-data:/var/lib/alloy, ./state/logs:/var/log/tele-proxy:ro]
+    mem_limit: 512m
+    cpus: 0.75
+    pids_limit: 128
+    healthcheck:
+      test: [CMD-SHELL, "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/12345; printf \"GET /-/ready HTTP/1.0\\r\\n\\r\\n\" >&3; IFS= read -r line <&3; [[ \"$$line\" == *\" 200 \"* ]]'"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+  node-exporter:
+    <<: *runtime
+    profiles: [monitoring]
+    image: prom/node-exporter:v1.9.1@sha256:d00a542e409ee618a4edc67da14dd48c5da66726bbd5537ab2af9c1dfc442c8a
+    command: [--path.sysfs=/host/sys, --collector.filesystem.mount-points-include=^/storage$$, --no-collector.wifi, --no-collector.hwmon]
+    volumes: ['/sys:/host/sys:ro', canary-data:/storage:ro]
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
+    healthcheck:
+      test: [CMD, /bin/wget, -q, -O, /dev/null, http://127.0.0.1:9100/metrics]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+  tempo:
+    <<: *runtime
+    profiles: [distributed-traces]
+    image: grafana/tempo:2.8.1@sha256:bc9245fe3da4e63dc4c6862d9c2dad9bcd8be13d0ba4f7705fa6acda4c904d0e
+    command: [-config.file=/etc/tempo/config.yaml]
+    ports: ['127.0.0.1:20320:3200']
+    volumes: [./tempo:/etc/tempo:ro, tempo-data:/var/tempo]
+    mem_limit: 768m
+    cpus: 1
+    pids_limit: 128
+    healthcheck:
+      test: [CMD, /busybox/wget, -q, -O, /dev/null, http://127.0.0.1:3200/ready]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+networks:
+  default:
+    name: tele-proxy-observability
+volumes:
+  canary-data:
+  canary-home:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+  alloy-data:
+  tempo-data:
+secrets:
+  metrics-token:
+    file: ./secrets/metrics-token
+  grafana-password:
+    file: ./secrets/grafana-password
