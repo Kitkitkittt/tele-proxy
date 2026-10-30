@@ -671,6 +671,29 @@ describe("handleEmbeddingsCore — provider error handling", () => {
     expect(result.error).toMatch(/ECONNREFUSED/);
   });
 
+  it("client cancellation during fetch → returns 499, not a 502 gateway error", async () => {
+    const controller = new AbortController();
+    vi.mocked(fetch).mockImplementationOnce(() => {
+      controller.abort();
+      return Promise.reject(Object.assign(new Error("This operation was aborted"), { name: "AbortError" }));
+    });
+
+    const result = await handleEmbeddingsCore(makeOptions({ signal: controller.signal }));
+
+    expect(result.success).toBe(false);
+    expect(result.status).toBe(499);
+    expect(result.response.status).toBe(499);
+  });
+
+  it("upstream abort without client cancellation remains a 502 gateway error", async () => {
+    const controller = new AbortController();
+    vi.mocked(fetch).mockRejectedValueOnce(Object.assign(new Error("upstream aborted"), { name: "AbortError" }));
+
+    const result = await handleEmbeddingsCore(makeOptions({ signal: controller.signal }));
+
+    expect(result.response.status).toBe(502);
+  });
+
   it("invalid JSON from provider → returns 502", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response("not json }{", {

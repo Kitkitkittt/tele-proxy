@@ -1,0 +1,228 @@
+{
+ "actualGateway": "Next standalone custom-server actual /v1 ingress",
+ "benchmark": {
+  "additionalP95EstimateMs": -2.57075500000019,
+  "baseline": {
+   "concurrency": 1,
+   "fixture": "canary-benchmark; identical indexed fixtures off/on; 10ms mock delay; non-streaming; 100 input/20 output tokens",
+   "gatewayP95EstimateMs": 34.186995000000024,
+   "overheadMethod": "p95 of each request elapsed minus matching mock-provider duration",
+   "p50Ms": 32.64455100000032,
+   "p95Ms": 47.912898000000496,
+   "providerP95Ms": 11.57855600000039,
+   "samples": 40,
+   "warmup": 6
+  },
+  "caveat": "production runtime; controlled local estimate, not production SLA.",
+  "enabled": {
+   "concurrency": 1,
+   "fixture": "canary-benchmark; identical indexed fixtures off/on; 10ms mock delay; non-streaming; 100 input/20 output tokens",
+   "gatewayP95EstimateMs": 31.616239999999834,
+   "overheadMethod": "p95 of each request elapsed minus matching mock-provider duration",
+   "p50Ms": 34.03652699999975,
+   "p95Ms": 43.07083199999988,
+   "providerP95Ms": 11.381421000000046,
+   "samples": 40,
+   "warmup": 6
+  },
+  "order": [
+   "on",
+   "off"
+  ],
+  "targetMet": true,
+  "targetMs": 10
+ },
+ "cases": [
+  {
+   "dispatches": 1,
+   "name": "off",
+   "passed": true
+  },
+  {
+   "dispatches": 1,
+   "name": "normal",
+   "passed": true
+  },
+  {
+   "dispatches": 2,
+   "name": "fallback",
+   "passed": true
+  },
+  {
+   "dispatches": 5,
+   "name": "retry503",
+   "passed": true
+  },
+  {
+   "dispatches": 2,
+   "name": "cross",
+   "passed": true
+  },
+  {
+   "dispatches": 1,
+   "name": "normal",
+   "passed": true
+  },
+  {
+   "dispatches": 2,
+   "name": "crossresult",
+   "passed": true
+  },
+  {
+   "dispatches": 1,
+   "name": "normal",
+   "passed": true
+  },
+  {
+   "name": "responses-string-and-structured",
+   "passed": true
+  },
+  {
+   "name": "anthropic-native-cache-blocks",
+   "passed": true
+  },
+  {
+   "dispatches": 1,
+   "name": "gemini-required-generateContent",
+   "passed": true
+  },
+  {
+   "dispatches": 1,
+   "name": "gemini-required-streamGenerateContent",
+   "passed": true
+  },
+  {
+   "dispatches": 1,
+   "name": "gemini-off-generateContent",
+   "passed": true
+  },
+  {
+   "dispatches": 1,
+   "name": "gemini-off-streamGenerateContent",
+   "passed": true
+  },
+  {
+   "dispatches": 0,
+   "name": "gemini-required-lossy-bridge-zero-dispatch",
+   "passed": true
+  },
+  {
+   "dispatches": 1,
+   "name": "stream",
+   "passed": true
+  },
+  {
+   "dispatches": 1,
+   "name": "missing",
+   "passed": true
+  },
+  {
+   "name": "stream-cancellation",
+   "passed": true
+  },
+  {
+   "dispatches": 1,
+   "name": "normal",
+   "passed": true
+  },
+  {
+   "dispatches": 0,
+   "name": "image-required-native-route",
+   "passed": true
+  },
+  {
+   "dispatches": 1,
+   "name": "image-off-native-route",
+   "passed": true
+  },
+  {
+   "dispatches": 0,
+   "name": "speech-required-native-route",
+   "passed": true
+  },
+  {
+   "dispatches": 1,
+   "name": "speech-off-native-route",
+   "passed": true
+  },
+  {
+   "name": "otlp-generation-mapping-not-langfuse-backend",
+   "passed": true
+  },
+  {
+   "name": "collector-outage-inference",
+   "passed": true
+  },
+  {
+   "name": "ledger-dispatch-reconciliation-and-unknowns",
+   "passed": true
+  },
+  {
+   "name": "duplicate-finalization-numeric-idempotence",
+   "passed": true
+  },
+  {
+   "name": "restart-durable-and-abandoned-unknown",
+   "passed": true
+  },
+  {
+   "name": "required-policy-failure-zero-dispatch",
+   "passed": true
+  },
+  {
+   "name": "metadata-privacy-fixture",
+   "passed": true
+  }
+ ],
+ "hardware": {
+  "architecture": "x64",
+  "cpu": "Intel(R) Core(TM) i5-6300HQ CPU @ 2.30GHz",
+  "logicalCpus": 4,
+  "memoryBytes": 25072115712,
+  "node": "v24.20.0",
+  "platform": "linux"
+ },
+ "ledger": {
+  "attempts": 50,
+  "coverage": {
+   "costKnownAttempts": 26,
+   "costUnknownAttempts": 24,
+   "requestComplete": 25,
+   "requestIncomplete": 22,
+   "usageKnownAttempts": 38,
+   "usageUnknownAttempts": 12
+  },
+  "requests": 47,
+  "totals": [
+   {
+    "apiEquivalentValueMicros": null,
+    "currency": null,
+    "invoiceReconciledSpendMicros": null,
+    "localInfrastructureAllocationMicros": null,
+    "meteredCostEstimateMicros": null,
+    "providerReportedChargeMicros": null,
+    "subscriptionAllocationMicros": null
+   },
+   {
+    "apiEquivalentValueMicros": null,
+    "currency": "USD",
+    "invoiceReconciledSpendMicros": null,
+    "localInfrastructureAllocationMicros": null,
+    "meteredCostEstimateMicros": 3120,
+    "providerReportedChargeMicros": null,
+    "subscriptionAllocationMicros": null
+   }
+  ]
+ },
+ "schemaVersion": 1,
+ "transport": {
+  "contentTypes": [
+   "application/json"
+  ],
+  "receivedBatches": 77
+ },
+ "untested": [
+  "Real Langfuse generation ingestion: no Langfuse backend started.",
+  "Live providers, production cutover, DNS and ingress unchanged."
+ ]
+}

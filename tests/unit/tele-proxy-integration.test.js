@@ -389,6 +389,55 @@ describe.sequential('tele-proxy durable numeric reconciliation', () => {
     expect(result.attempts[0]).toMatchObject({ requestedModel: 'wire-model', usageSource: 'reported', meteredCostEstimateMicros: 120 });
     expect(result.attempts[0].priceSnapshotId).not.toBeNull();
   });
+  // Acceptance: a streaming primary that already delivered client content must not dispatch
+  // the fallback when its upstream stream later fails at the physical boundary.
+  it('never dispatches a fallback model after the committed primary stream fails upstream', async () => {
+    const { handleComboChat } = await import('../../open-sse/services/combo.js');
+    const { handleStreamingResponse, buildOnStreamComplete } = await import('../../open-sse/handlers/chatCore/streamingHandler.js');
+    const { createStreamController } = await import('../../open-sse/utils/streamHandler.js');
+    const { initTranslators } = await import('../../open-sse/translator/index.js');
+    await initTranslators();
+    const LOG = { line: vi.fn(), errorLine: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+    const combo = await repositories.createCombo({ name: 'committed-stream-failure', models: ['fixture/primary-ok', 'fixture/fallback-never'] });
+    const sends = [];
+    const request = new Request('http://localhost/v1/chat/completions', { method: 'POST', body: '{}' });
+    const { response, text, row } = await requestThroughGateway('committed-stream-failure', () =>
+      gateway.executeGatewayProvider({ provider: 'fixture', model: 'primary-ok', format: 'openai' }, () =>
+        dispatch.dispatchGeneration({ provider: 'fixture', model: 'primary-ok', policySupported: false, transport: 'http' }, () => handleComboChat({
+          body: { messages: [{ role: 'user', content: 'hi' }] },
+          models: combo.models,
+          handleSingleModel: async (_body, member) => {
+            sends.push(member);
+            if (member !== 'fixture/primary-ok') return new Response('unexpected fallback', { status: 500 });
+            // Upstream HTTP boundary: content frame, then a transport failure mid-body.
+            const failure = new Error('synthetic upstream stream failure');
+            let sent = false;
+            const upstream = new ReadableStream({ pull(controller) {
+              if (!sent) { sent = true; controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ id: 'chatcmpl-committed', object: 'chat.completion.chunk', created: 1, model: 'primary-ok', choices: [{ index: 0, delta: { content: 'committed-visible' }, finish_reason: null }] })}\n\n`)); }
+              else controller.error(failure);
+            } }, { highWaterMark: 0 });
+            const { onStreamComplete, streamDetailId } = buildOnStreamComplete({ provider: 'fixture', model: 'primary-ok', requestStartTime: Date.now(), body: { messages: [] }, stream: true, log: LOG });
+            const streamed = await handleStreamingResponse({
+              providerResponse: new Response(upstream, { status: 200, headers: { 'Content-Type': 'text/event-stream' } }),
+              provider: 'fixture', model: 'primary-ok', sourceFormat: FORMATS.OPENAI, targetFormat: FORMATS.OPENAI,
+              body: { messages: [{ role: 'user', content: 'hi' }] }, stream: true, requestStartTime: Date.now(),
+              streamController: createStreamController({ log: LOG, provider: 'fixture', model: 'primary-ok' }),
+              onStreamComplete, streamDetailId, log: LOG,
+            });
+            return streamed.response;
+          },
+          log: LOG, comboName: combo.name, comboStrategy: 'fallback',
+        })),
+      ), combo.name);
+    expect(text).toContain('committed-visible');
+    expect(response.status).toBe(200);
+    // Read-after-drain: sends are recorded durably as attempts settle.
+    const attemptsAfter = await ledger.getRequestAttempts(row.request_id);
+    expect(sends).toEqual(['fixture/primary-ok']);
+    expect(row).toMatchObject({ requested_alias: 'committed-stream-failure', attempt_count: 1 });
+    expect(attemptsAfter).toHaveLength(1);
+    expect(attemptsAfter[0]).toMatchObject({ provider: 'fixture', requestedModel: 'primary-ok' });
+  });
   it.each(['start', 'finish'])('marks request incomplete when attempt %s persistence fails before a successful fallback', async phase => {
     const database = await db();
     const trigger = `teleproxy_test_failure_${phase}`;

@@ -14,6 +14,8 @@
 - Synthetic native Gemini JSON/SSE policy-on and policy-off wire checks in the canary; no live provider traffic is required.
 
 ## Fixed
+- Clear stale ledger errors during a new summary or attempt load. Return HTTP 499 rather than an upstream error when an embedding client cancels during dispatch, credential refresh or refresh redispatch; unrelated upstream transport failures remain 502. Persist a refresh that completes after cancellation, because providers such as GitHub invalidate the previous token pair; only the redispatch is skipped.
+- Correct dashboard-signal and monitoring-capacity evidence: provider availability remains unmeasured, and a point-in-time disk snapshot does not qualify sustained storage capacity.
 - Correct request outcomes when client cancellation races EOF persistence; confirmed-empty metrics wait for a successful close. A crash between the success commit and outcome correction can still leave success persisted.
 - Recheck cancellation after durable attempt reservation and before physical sends; release unsent reservations without inventing dispatch or usage metrics, distinguish client cancellation from internal transport timeout, and stop cancelled embedding requests before account fallback.
 - Preserve developer instructions through OpenAI-to-Anthropic translation and required policies independently of compression; reject known unsupported native preservation before dispatch.

@@ -14,6 +14,12 @@ vi.mock("@opentelemetry/exporter-trace-otlp-http", () => ({
   },
 }));
 
+const codexAudio = vi.hoisted(() => ({ convert: null }));
+vi.mock("../../open-sse/handlers/codexSttAudio.js", async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, convertAudio: (...args) => codexAudio.convert ? codexAudio.convert(...args) : actual.convertAudio(...args) };
+});
+
 const embeddingUrl = "http://127.0.0.1:18881/v1/embeddings";
 const transcriptionUrl = "http://127.0.0.1:18882/v1/audio/transcriptions";
 const embeddingModel = "selfhosted-embedding/embedding";
@@ -100,6 +106,7 @@ afterEach(async () => {
   database?.close?.();
   delete globalThis._dbAdapter;
   delete globalThis[Symbol.for("tele-proxy.initialization")];
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   vi.resetModules();
@@ -263,6 +270,82 @@ describe.sequential("real direct audio and embedding route accounting", () => {
     ]);
   });
 
+  it("returns cancellation after an embedding refresh redispatch is aborted", async () => {
+    await repositories.createProviderConnection({
+      provider: "openrouter", authType: "oauth", name: "synthetic refresh embedding", accessToken: "synthetic-old-token",
+      refreshToken: "synthetic-refresh-token", providerSpecificData: { baseUrl: "http://127.0.0.1:18881/v1" },
+    });
+    const { getExecutor } = await import("../../open-sse/executors/index.js");
+    vi.spyOn(getExecutor("openrouter"), "refreshCredentials").mockResolvedValue({ accessToken: "synthetic-new-token" });
+    const controller = new AbortController();
+    network.mockImplementation(async () => {
+      if (network.mock.calls.length === 1) return Response.json({ error: "expired" }, { status: 401 });
+      controller.abort();
+      throw new DOMException("The operation was aborted", "AbortError");
+    });
+
+    const response = await routes.embeddings.POST(new Request(embeddingRequest("openrouter/embedding"), { signal: controller.signal }));
+    expect(response.status).toBe(499);
+    expect(network).toHaveBeenCalledTimes(2);
+    const summary = await ledger.getLedgerSummary();
+    expect(summary.recentRequests[0]).toMatchObject({ finalStatus: "cancelled", attemptCount: 2 });
+    expect(await ledger.getRequestAttempts(summary.recentRequests[0].requestId)).toMatchObject([
+      { sequence: 1, status: "error" }, { sequence: 2, status: "cancelled" },
+    ]);
+  });
+
+  it("returns cancellation when credential refresh ends after the client aborts", async () => {
+    await repositories.createProviderConnection({
+      provider: "openrouter", authType: "oauth", name: "synthetic refresh embedding", accessToken: "synthetic-old-token",
+      refreshToken: "synthetic-refresh-token", providerSpecificData: { baseUrl: "http://127.0.0.1:18881/v1" },
+    });
+    const controller = new AbortController();
+    const { getExecutor } = await import("../../open-sse/executors/index.js");
+    vi.spyOn(getExecutor("openrouter"), "refreshCredentials").mockImplementation(async () => {
+      controller.abort();
+      return null;
+    });
+    network.mockResolvedValue(Response.json({ error: "expired" }, { status: 401 }));
+
+    const response = await routes.embeddings.POST(new Request(embeddingRequest("openrouter/embedding"), { signal: controller.signal }));
+    expect(response.status).toBe(499);
+    expect(network).toHaveBeenCalledTimes(1);
+    const summary = await ledger.getLedgerSummary();
+    expect(summary.recentRequests[0]).toMatchObject({ finalStatus: "cancelled", attemptCount: 1 });
+  });
+
+  it("persists a rotated credential and skips redispatch when refresh finishes after abort", async () => {
+    const connection = await repositories.createProviderConnection({
+      provider: "openrouter", authType: "oauth", name: "synthetic rotated refresh embedding", accessToken: "synthetic-old-token",
+      refreshToken: "synthetic-refresh-token", providerSpecificData: { baseUrl: "http://127.0.0.1:18881/v1" },
+    });
+    const controller = new AbortController();
+    const { getExecutor } = await import("../../open-sse/executors/index.js");
+    vi.spyOn(getExecutor("openrouter"), "refreshCredentials").mockImplementation(async () => {
+      controller.abort();
+      return { accessToken: "synthetic-rotated-token", refreshToken: "synthetic-rotated-refresh" };
+    });
+    network.mockImplementation(async () => Response.json({ error: "expired" }, { status: 401 }));
+    const persisted = vi.fn();
+    const onCredentialsRefreshed = vi.fn(async (credentials) => {
+      persisted(await repositories.updateProviderConnection(connection.id, credentials));
+    });
+    const { handleEmbeddingsCore } = await import("../../open-sse/handlers/embeddingsCore.js");
+    const log = await import("@/sse/utils/logger.js");
+    const result = await handleEmbeddingsCore({
+      modelInfo: { provider: "openrouter", model: "embedding" }, credentials: { accessToken: "synthetic-old-token", refreshToken: "synthetic-refresh-token", providerSpecificData: { baseUrl: "http://127.0.0.1:18881/v1" } },
+      body: { input: ["synthetic"] }, signal: controller.signal, log,
+      onCredentialsRefreshed,
+    });
+    expect(result.status).toBe(499);
+    expect(network).toHaveBeenCalledTimes(1);
+    expect(onCredentialsRefreshed).toHaveBeenCalledTimes(1);
+    expect(persisted).toHaveBeenCalledTimes(1);
+    expect(await repositories.getProviderConnectionById(connection.id)).toMatchObject({
+      accessToken: "synthetic-rotated-token", refreshToken: "synthetic-rotated-refresh",
+    });
+  });
+
   it("records active embedding cancellation without a post-cancellation retry", async () => {
     let onAbort;
     network.mockImplementation((_url, options) => new Promise((_resolve, reject) => {
@@ -274,7 +357,7 @@ describe.sequential("real direct audio and embedding route accounting", () => {
     while (!onAbort) await new Promise((resolve) => setImmediate(resolve));
     controller.abort();
     const response = await pending;
-    expect(response.ok).toBe(false);
+    expect(response.status).toBe(499);
     expect(network).toHaveBeenCalledTimes(1);
     const summary = await ledger.getLedgerSummary();
     expect(summary).toMatchObject({ requests: 1, attempts: 1 });
@@ -322,7 +405,7 @@ describe.sequential("real direct audio and embedding route accounting", () => {
     controller.abort();
     const request = new Request(embeddingRequest(), { signal: controller.signal });
     const response = await routes.embeddings.POST(request);
-    expect(response.ok).toBe(false);
+    expect(response.status).toBe(499);
     await response.text();
     expect(network).not.toHaveBeenCalled();
     const summary = await ledger.getLedgerSummary();
@@ -374,13 +457,14 @@ describe.sequential("real direct audio and embedding route accounting", () => {
     vi.stubEnv("NO_PROXY", "");
     vi.stubEnv("no_proxy", "");
     vi.stubEnv("HTTPS_PROXY", "http://127.0.0.1:18883");
-    const url = "https://stt.invalid/v1/audio/transcriptions";
+    const url = "https://chatgpt.com/backend-api/transcribe";
     network.mockImplementation(async (target, options) => {
       expect(String(target)).toBe(url);
       expect(options.dispatcher).toBeDefined();
       throw new Error("synthetic proxy failure");
     });
     const sends = [];
+    codexAudio.convert = vi.fn(async () => new Blob([audio], { type: "audio/wav" }));
     vi.spyOn(https, "request").mockImplementation((target, options, callback) => {
       sends.push({ target: String(target), method: options.method });
       const req = new EventEmitter();
@@ -394,25 +478,31 @@ describe.sequential("real direct audio and embedding route accounting", () => {
     });
     try {
       const { withGatewayRequest, executeGatewayProvider } = await import("@/lib/teleProxy.js");
-      const { withGenerationDispatch } = await import("../../open-sse/services/dispatchContext.js");
-      const { codexHttpFetch } = await import("../../open-sse/handlers/codexStt.js");
-      const { proxyAwareFetch } = await import("../../open-sse/utils/proxyFetch.js");
+      const { handleSttCore } = await import("../../open-sse/handlers/sttCore.js");
+      const { default: codex } = await import("../../open-sse/providers/registry/codex.js");
+      const formData = new FormData();
+      formData.set("file", new File([audio], "synthetic.wav", { type: "audio/wav" }));
       const request = new Request("http://localhost/v1/audio/transcriptions", { method: "POST" });
-      const response = await withGatewayRequest({ request, body: {}, target: "codex/transcribe", requestedAlias: "codex/transcribe", authenticatedKey: key.key }, () =>
-        executeGatewayProvider({ provider: "codex", model: "transcribe" }, () =>
-          withGenerationDispatch({ requestedModel: "transcribe", policySupported: false }, () =>
-            proxyAwareFetch(url, { method: "POST", headers: {}, body: "audio", directFetch: codexHttpFetch }))));
-      expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ text: "hello" });
+      const result = await withGatewayRequest({ request, body: {}, target: "codex/transcribe", requestedAlias: "codex/transcribe", authenticatedKey: key.key }, async () =>
+        (await executeGatewayProvider({ provider: "codex", model: "transcribe" }, () => handleSttCore({
+          provider: "codex", model: "transcribe", formData,
+          credentials: { authType: "oauth", accessToken: "synthetic-codex-token", providerSpecificData: { workspaceId: "synthetic-codex-account" } },
+          sttConfig: codex.sttConfig,
+        }))).response);
+      expect(result.status).toBe(200);
+      expect(await result.json()).toEqual({ text: "hello" });
+      expect(codexAudio.convert).toHaveBeenCalledTimes(1);
       expect(network).toHaveBeenCalledTimes(1);
       expect(sends).toEqual([{ target: url, method: "POST" }]);
       const summary = await ledger.getLedgerSummary();
       expect(summary).toMatchObject({ requests: 1, attempts: 2 });
+      expect(summary.recentRequests[0]).toMatchObject({ finalStatus: "success" });
       expect(await ledger.getRequestAttempts(summary.recentRequests[0].requestId)).toMatchObject([
         { sequence: 1, provider: "codex", requestedModel: "transcribe", status: "error" },
         { sequence: 2, provider: "codex", requestedModel: "transcribe", status: "success" },
       ]);
     } finally {
+      codexAudio.convert = null;
       vi.restoreAllMocks();
     }
   });

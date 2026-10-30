@@ -76,6 +76,8 @@ export async function handleEmbeddingsCore({
       ...(signal ? { signal } : {}),
     }));
   } catch (error) {
+    // A cancelled client is not an upstream gateway failure; keep parity with chatCore.
+    if (clientSignal?.aborted) return createErrorResult(499, "Request aborted");
     const errMsg = formatProviderError(error, provider, model, HTTP_STATUS.BAD_GATEWAY);
     log?.debug?.("EMBEDDINGS", `Fetch error: ${errMsg}`);
     return createErrorResult(HTTP_STATUS.BAD_GATEWAY, errMsg);
@@ -88,17 +90,22 @@ export async function handleEmbeddingsCore({
     (providerResponse.status === HTTP_STATUS.UNAUTHORIZED ||
       providerResponse.status === HTTP_STATUS.FORBIDDEN)
   ) {
+    // Refresh must outlive client cancellation: providers such as GitHub
+    // invalidate the previous pair, so discarding a rotated token breaks later
+    // requests. Redispatch below still re-checks the client signal.
     const newCredentials = await refreshWithRetry(
       () => executor.refreshCredentials(credentials, log),
       3,
       log
     );
-
-    if (newCredentials?.accessToken || newCredentials?.apiKey) {
+    const refreshed = newCredentials?.accessToken || newCredentials?.apiKey;
+    if (refreshed) {
       log?.info?.("TOKEN", `${provider.toUpperCase()} | refreshed for embeddings`);
       Object.assign(credentials, newCredentials);
       if (onCredentialsRefreshed) await onCredentialsRefreshed(newCredentials);
-
+    }
+    if (clientSignal?.aborted) return createErrorResult(499, "Request aborted");
+    if (refreshed) {
       try {
         const retryHeaders = adapter.buildHeaders(credentials, ctx);
         const retryUrl = adapter.buildUrl(model, credentials, ctx);
@@ -109,6 +116,7 @@ export async function handleEmbeddingsCore({
           ...(accountingActive && signal ? { signal } : {}),
         }));
       } catch {
+        if (clientSignal?.aborted) return createErrorResult(499, "Request aborted");
         log?.warn?.("TOKEN", `${provider.toUpperCase()} | retry after refresh failed`);
       }
     } else {

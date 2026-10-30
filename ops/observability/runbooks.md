@@ -59,12 +59,12 @@ Operational coverage limitations are explicit on dashboards: tokens cannot be gr
 
 ### Missing-signal classification (#10)
 
-Each signal the ticket requires is either implemented, covered by an authoritative alternative, or an accepted omission. "Alternative" means a documented, authenticated path exists — **not** that the signal appears in Prometheus.
+Each signal the ticket requires is either implemented, covered by an authoritative alternative, or an omission. "Alternative" means a documented, authenticated path exists — **not** that the signal appears in Prometheus. Omissions are not accepted without an operator decision.
 
 | Required signal | State | Evidence / alternative |
 |---|---|---|
 | Requests vs attempts | Implemented | `nine_router_requests_total`, `nine_router_attempts_total`; authoritative reconciliation in `/api/usage/ledger`. |
-| Provider availability | **Alternative** | `nine_router_attempts_total{outcome}` measures observed attempts, not active-provider health. No synthetic provider poller exists. |
+| Provider availability | **Not implemented** | `nine_router_attempts_total{outcome}` measures observed attempts, not active-provider health. No synthetic provider poller exists; availability remains unknown. |
 | Combo/project token views | **Alternative** | Forbidden as metric labels; use authenticated `GET /api/usage/ledger` project attribution and `/dashboard/usage`. |
 | Observed HTTP 5xx attempts | **Implemented, bounded** | `nine_router_upstream_http_5xx_attempts_total{provider}` counts observed upstream 500–599 responses on instrumented HTTP attempts, including DNS bypass, not native-managed transports, network failures, or client-facing statuses. Missing series is unknown, not zero; this is not complete coverage of every transport. |
 | Empty-stream count | **Implemented, limited** | `nine_router_confirmed_empty_streams_total{combo}` counts fully consumed successful client-facing SSE only when every chunk matches the strict canonical single-choice OpenAI Chat allowlist with consistent response identity (ID and model at most 128 characters), one finish reason `stop`, and `[DONE]`. Only bounded identity metadata is retained temporarily; content is never retained beyond the bounded message being parsed. It excludes content, mismatched identity, unsupported fields/formats, malformed/oversized data, invalid UTF-8, errors, missing terminal and cancellation. Absence is unknown, not zero; no complete empty-stream rate is implied. |

@@ -110,6 +110,7 @@ function RequestAttempts({ request, refresh }) {
     return () => controller.abort();
   }, [request.requestId, refresh, key]);
   const loading = state.key !== key;
+  const error = loading ? "" : state.error;
   const attempts = loading ? [] : state.attempts;
 
   return (
@@ -117,8 +118,8 @@ function RequestAttempts({ request, refresh }) {
       <h3 id="ledger-request-heading" className="font-semibold text-text-main">Selected request and upstream attempts</h3>
       <Metadata record={request} fields={REQUEST_FIELDS} />
       {loading && <p role="status" className="text-sm text-text-muted">Loading attempts…</p>}
-      {state.error && <p role="alert" className="text-sm text-red-500">{state.error} Use Refresh to retry.</p>}
-      {!loading && !state.error && attempts.length === 0 && <p className="text-sm text-text-muted">No upstream attempts recorded for this request.</p>}
+      {error && <p role="alert" className="text-sm text-red-500">{error} Use Refresh to retry.</p>}
+      {!loading && !error && attempts.length === 0 && <p className="text-sm text-text-muted">No upstream attempts recorded for this request.</p>}
       {attempts.length > 0 && (
         <LedgerTable caption="Upstream attempts for the selected logical request" headings={["Sequence / status", "Provider / models", "Usage provenance", "Input / output tokens", "Cache / reasoning tokens", "Cost coverage / evidence"]}>
           {attempts.map((attempt) => (
@@ -239,6 +240,7 @@ export default function RequestLedgerTab() {
   }
 
   const loading = state.key !== key;
+  const error = loading ? "" : state.error;
   const data = loading ? null : state.data;
   const selectedRequest = data?.recentRequests?.find((request) => request.requestId === selectedId);
 
@@ -249,10 +251,10 @@ export default function RequestLedgerTab() {
         <p className="mt-1 text-sm text-text-muted">Logical client requests and every upstream dispatch are counted separately. Missing usage or pricing evidence is unknown, never free.</p>
         <form onSubmit={applyRange} className="mt-4 flex flex-col gap-4" aria-describedby="ledger-range-help">
           <div className="grid gap-4 sm:grid-cols-2">
-            {["from", "to"].map((key) => (
-              <div key={key}>
-                <label htmlFor={`ledger-${key}`} className="mb-2 block text-sm font-medium text-text-main">{key === "from" ? "From" : "To"} (local time)</label>
-                <input id={`ledger-${key}`} type="datetime-local" step="1" value={range[key]} onChange={(event) => setRange({ ...range, [key]: event.target.value })} className={inputClass} aria-invalid={Boolean(rangeError)} aria-describedby={rangeError ? "ledger-range-error" : "ledger-range-help"} />
+            {["from", "to"].map((field) => (
+              <div key={field}>
+                <label htmlFor={`ledger-${field}`} className="mb-2 block text-sm font-medium text-text-main">{field === "from" ? "From" : "To"} (local time)</label>
+                <input id={`ledger-${field}`} type="datetime-local" step="1" value={range[field]} onChange={(event) => setRange({ ...range, [field]: event.target.value })} className={inputClass} aria-invalid={Boolean(rangeError)} aria-describedby={rangeError ? "ledger-range-error" : "ledger-range-help"} />
               </div>
             ))}
           </div>
@@ -265,7 +267,7 @@ export default function RequestLedgerTab() {
         </form>
       </Card>
       {loading && <p role="status" className="text-sm text-text-muted">Loading request ledger…</p>}
-      {state.error && <Card padding="md"><p role="alert" className="text-sm text-red-500">{state.error} Use Refresh to retry.</p></Card>}
+      {error && <Card padding="md"><p role="alert" className="text-sm text-red-500">{error} Use Refresh to retry.</p></Card>}
       {data?.enabled === false && <Card padding="md"><p role="status" className="text-sm text-text-muted">Request accounting is disabled. An administrator must enable TELE_PROXY_ENABLED=1 on the server to collect and view the ledger. Historical reference estimates are not imported as actual charges.</p></Card>}
       {data?.enabled && (
         <>
