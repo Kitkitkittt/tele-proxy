@@ -52,6 +52,8 @@ services:
     volumes: [./prometheus:/etc/prometheus:ro, prometheus-data:/prometheus]
     secrets: [metrics-token]
     read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
     mem_limit: 768m
     cpus: 1
     pids_limit: 128
