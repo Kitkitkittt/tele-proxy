@@ -234,6 +234,7 @@ export function endAttempt(handle, fields = {}) {
     handle.span?.setAttributes({ ...attrs, "gateway.outcome": state, "gateway.error_class": reason(combined) });
     if (state === "error") handle.span?.setStatus({ code: SpanStatusCode.ERROR });
     inc("attempts_total", { provider: p, outcome: state, reason: state === "success" ? "unknown" : reason(combined) });
+    if (Number.isInteger(combined.observedUpstreamHttpStatus) && combined.observedUpstreamHttpStatus >= 500 && combined.observedUpstreamHttpStatus <= 599) inc("upstream_http_5xx_attempts_total", { provider: p });
     const usage = attrs["langfuse.observation.usage_details"] ? JSON.parse(attrs["langfuse.observation.usage_details"]) : {};
     if (combined.usageComplete === false || !finite(usage.input) || !finite(usage.output)) inc("usage_unknown_total", { provider: p });
     for (const type of ["input", "output", "cached_input", "cache_write", "reasoning"]) if (finite(usage[type])) inc("tokens_total", { provider: p, type }, usage[type]);
@@ -259,6 +260,12 @@ export function endRequest(handle, fields = {}) {
     handle.span?.end(); log(state === "error" ? "ERROR" : "INFO", "request_completed", handle, { outcome: state });
   } catch { recordDrop("export_failed"); }
 }
+export function confirmedEmptyStream(handle) {
+  if (!handle?.ended || outcome(handle.fields) !== "success" || handle.confirmedEmptyRecorded) return;
+  handle.confirmedEmptyRecorded = true;
+  try { inc("confirmed_empty_streams_total", { combo: labelCombo(handle.fields.resolvedCombo || handle.fields.combo || handle.fields.requestedAlias) }); }
+  catch { recordDrop("export_failed"); }
+}
 export function event(root, name, fields = {}) {
   if (!enabled() || !events.has(name)) return;
   try {
@@ -278,7 +285,7 @@ export function event(root, name, fields = {}) {
 function labelsText(labels) { return `{${Object.entries(labels).map(([k, v]) => `${k}=${JSON.stringify(String(v))}`).join(",")}}`; }
 export function metricsText() {
   const lines = [];
-  const counterNames = ["requests_total", "attempts_total", "tokens_total", "fallbacks_total", "policy_application_failures_total", "usage_unknown_total", "ledger_write_failures_total", "telemetry_dropped_total", "unsupported_accounting_transport_total"];
+  const counterNames = ["requests_total", "attempts_total", "upstream_http_5xx_attempts_total", "confirmed_empty_streams_total", "tokens_total", "fallbacks_total", "policy_application_failures_total", "usage_unknown_total", "ledger_write_failures_total", "telemetry_dropped_total", "unsupported_accounting_transport_total"];
   for (const name of counterNames) lines.push(`# TYPE nine_router_${name} counter`);
   for (const [key, value] of counters) { const sep = key.indexOf("|"); lines.push(`nine_router_${key.slice(0, sep)}${labelsText(JSON.parse(key.slice(sep + 1)))} ${value}`); }
   for (const name of ["request_duration_seconds", "upstream_first_content_seconds", "client_first_content_seconds"]) lines.push(`# TYPE nine_router_${name} histogram`);

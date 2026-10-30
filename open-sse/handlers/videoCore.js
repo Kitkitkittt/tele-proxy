@@ -3,7 +3,7 @@ import { HTTP_STATUS } from "../config/runtimeConfig.js";
 import { refreshTokenByProvider } from "../services/tokenRefresh.js";
 import { PROVIDER_MEDIA } from "../providers/index.js";
 import { getVideoAdapter } from "./videoProviders/index.js";
-import { dispatchGeneration, reportUnsupportedDispatch, withDispatchMetadata } from "../services/dispatchContext.js";
+import { withGenerationDispatch, reportUnsupportedDispatch, withDispatchMetadata } from "../services/dispatchContext.js";
 
 // Upstream fetch deadline for video job submission/polling (the job itself is
 // async upstream — this only bounds the HTTP round-trip, not video rendering).
@@ -220,7 +220,7 @@ export async function handleVideoProxyCore({
       signal: fetchSignal,
     });
     // A Vertex poll is also POST; only a creation action submits inference.
-    const response = requestId ? await send() : await dispatchGeneration({
+    const response = requestId ? await send() : await withGenerationDispatch({
       provider, model: (() => { try { return JSON.parse(rawBody)?.model; } catch { return undefined; } })(),
       connectionId: credentials?.connectionId, signal: fetchSignal,
       transport: "video-http", policySupported: false,

@@ -93,25 +93,21 @@ async function dispatch(root, details, send) {
     : details.requestedModel || details.model;
   const role = details.dispatchRole === "classifier" ? "classifier" : "generation";
   const started = performance.now();
+  const attemptId = root.row ? randomUUID() : null;
   let row = root.row ? await persist(() => ledger.startAttempt(root.row.requestId, {
-    provider: details.provider, requestedModel: wireModel, connectionId: details.connectionId,
+    attemptId, provider: details.provider, requestedModel: wireModel, connectionId: details.connectionId,
     fallbackReason: fallbackReason(root, role),
   })) : null;
   if (!row) root.accountingIncomplete = true;
-  const span = safeTelemetry("startAttempt", root.span, {
-    provider: details.provider, model: wireModel, attemptId: row?.attemptId,
-    fallbackReason: fallbackReason(root, role), policyId: root.policy?.policyId,
-    policyVersion: root.policy?.version, policyHash: root.policy?.hash,
-  });
+  let span = null;
   const attempt = { row, span, started, role, executionId: details.executionId, firstContent: null, usage: null, model: null, settled: false };
-  root.attempts.push(attempt);
   const settle = async (result) => {
     if (attempt.settled) return;
     attempt.settled = true;
     if (Number.isInteger(result.httpStatus)) attempt.httpStatus = result.httpStatus;
-    const timedOut = details.signal?.aborted && details.signal.reason?.name === "TimeoutError";
-    const cancelled = result.status === "cancelled" && !timedOut;
-    const status = cancelled ? "cancelled" : timedOut || result.status === "error" ? "error" : "success";
+    const timedOut = !root.request.signal.aborted && details.signal?.aborted && details.signal.reason?.name === "TimeoutError";
+    const cancelled = result.status === "cancelled" && (root.request.signal.aborted || !details.signal?.aborted);
+    const status = cancelled ? "cancelled" : timedOut || result.status === "error" || result.status === "cancelled" ? "error" : "success";
     const errorClass = cancelled ? "cancelled" : timedOut ? "timeout" : result.errorClass === "http_error" ? classifyHttp(attempt.httpStatus) || "upstream" : result.errorClass ? "upstream" : null;
     attempt.errorClass = errorClass;
     const fields = {
@@ -127,7 +123,7 @@ async function dispatch(root, details, send) {
       if (!saved) root.accountingIncomplete = true;
       row = saved;
     }
-    safeTelemetry("endAttempt", span, { ...fields, httpStatus: attempt.httpStatus, durationMs: elapsed(started), ...(row || {}), usage: ledger.normalizeUsage(attempt.usage, details.format) });
+    safeTelemetry("endAttempt", span, { ...fields, httpStatus: attempt.httpStatus, observedUpstreamHttpStatus: attempt.observedUpstreamHttpStatus, durationMs: elapsed(started), ...(row || {}), usage: ledger.normalizeUsage(attempt.usage, details.format) });
   };
   attempt.settle = settle;
   attempt.observe = (response) => {
@@ -140,18 +136,38 @@ async function dispatch(root, details, send) {
       onEnd: settle,
     });
   };
-  if (typeof details.observeNative === "function") {
-    attempt.nativeManaged = true;
-    details.observeNative({
-      onFirstContent() { attempt.firstContent ??= elapsed(started); },
-      onUsage(usage, model) { attempt.usage = usage; attempt.model = model; },
-      onEnd: settle,
-    });
+  try {
+    if (typeof details.observeNative === "function") {
+      attempt.nativeManaged = true;
+      details.observeNative({
+        onFirstContent() { attempt.firstContent ??= elapsed(started); },
+        onUsage(usage, model) { attempt.usage = usage; attempt.model = model; },
+        onEnd: settle,
+      });
+    }
+    root.request.signal.throwIfAborted();
+    details.signal?.throwIfAborted?.();
+  } catch (error) {
+    if (attemptId && !await persist(() => ledger.discardUnsentAttempt(root.row.requestId, attemptId))) root.accountingIncomplete = true;
+    throw error;
   }
+  span = safeTelemetry("startAttempt", root.span, {
+    provider: details.provider, model: wireModel, attemptId: row?.attemptId,
+    fallbackReason: fallbackReason(root, role), policyId: root.policy?.policyId,
+    policyVersion: root.policy?.version, policyHash: root.policy?.hash,
+  });
+  attempt.span = span;
+  root.attempts.push(attempt);
   try {
     const result = await send();
     if (attempt.nativeManaged) return result;
     const response = result instanceof Response ? result : result?.response;
+    if (response instanceof Response) attempt.observedUpstreamHttpStatus = response.status;
+    else if (details.transport === "http-dns-bypass" && Number.isInteger(result?.status)
+      && result?.headers instanceof Map && result?.body?.getReader) {
+      // DNS bypass returns a response-like object directly from the physical HTTP send.
+      attempt.observedUpstreamHttpStatus = result.status;
+    }
     if (!response?.body?.getReader || (details.nativeResponse === true && response.status < 400)) {
       attempt.nativePending = true;
       return result;
@@ -164,7 +180,7 @@ async function dispatch(root, details, send) {
     const observed = attempt.observe(response);
     return result instanceof Response ? observed : { ...result, response: observed };
   } catch (error) {
-    await settle({ status: error?.name === "AbortError" ? "cancelled" : "error", errorClass: "stream_error", usageComplete: false });
+    await settle({ status: root.request.signal.aborted ? "cancelled" : "error", errorClass: "stream_error", usageComplete: false });
     throw error;
   }
 }
@@ -195,22 +211,29 @@ export async function withGatewayRequest({ request, body, target, requestedAlias
   }));
   safeTelemetry("attachRequestIdentity", span, { requestId: row?.requestId, approvedProjectId: row?.approvedProjectId });
   const root = { row, span, policy, request, attempts: [], started: performance.now(), firstContent: null, policyStatus: policyActive(policy) ? "pending" : "off", done: false, accountingIncomplete: false };
-  const finish = async (finalStatus) => {
+  const finish = async (finalStatus, deferCompletion = false) => {
     if (root.done) return;
     root.done = true;
     for (const attempt of root.attempts) {
       if (!attempt.settled) await attempt.settle({ status: finalStatus === "cancelled" ? "cancelled" : "error", errorClass: "incomplete_stream", usageComplete: false });
     }
     if (row) await persist(() => ledger.finishRequest(row.requestId, { finalStatus, policyAppliedStatus: root.policyStatus, accountingIncomplete: root.accountingIncomplete }));
-    safeTelemetry("endRequest", span, { status: finalStatus, durationMs: elapsed(root.started), clientFirstContentMs: root.firstContent === null ? null : Math.max(0, Math.round(root.firstContent - root.started)), policyAppliedStatus: root.policyStatus });
-    if (row?.approvedProjectId) {
-      const outcome = finalStatus === "success" || finalStatus === "cancelled" ? finalStatus : "error";
-      const diagnostic = { event: "request", outcome, durationMs: elapsed(root.started) };
-      if (root.firstContent !== null) diagnostic.clientFirstContentMs = Math.max(0, Math.round(root.firstContent - root.started));
-      void captureProjectDiagnostic(row.approvedProjectId, diagnostic, row.requestId).catch((error) => {
-        if (error?.status !== 403) safeTelemetry("recordDrop", "diagnostic_failed");
-      });
-    }
+    const complete = async (outcome = finalStatus) => {
+      if (outcome !== finalStatus && finalStatus === "success" && row) {
+        const corrected = await persist(() => ledger.correctRequestEofOutcome(row.requestId, outcome));
+        if (corrected && corrected.finalStatus !== outcome) safeTelemetry("ledgerFailure");
+      }
+      safeTelemetry("endRequest", span, { status: outcome, durationMs: elapsed(root.started), clientFirstContentMs: root.firstContent === null ? null : Math.max(0, Math.round(root.firstContent - root.started)), policyAppliedStatus: root.policyStatus });
+      if (row?.approvedProjectId) {
+        const diagnostic = { event: "request", outcome: outcome === "success" || outcome === "cancelled" ? outcome : "error", durationMs: elapsed(root.started) };
+        if (root.firstContent !== null) diagnostic.clientFirstContentMs = Math.max(0, Math.round(root.firstContent - root.started));
+        void captureProjectDiagnostic(row.approvedProjectId, diagnostic, row.requestId).catch((error) => {
+          if (error?.status !== 403) safeTelemetry("recordDrop", "diagnostic_failed");
+        });
+      }
+    };
+    if (deferCompletion && finalStatus === "success") return complete;
+    await complete();
   };
   if (invalidPolicy) {
     root.policyStatus = "failed";
@@ -236,16 +259,20 @@ export async function withGatewayRequest({ request, body, target, requestedAlias
   try {
     const response = await storage.run(root, () => withDispatchContext(context, callback));
     if (!(response instanceof Response)) { await finish("error"); return response; }
-    if (!response.body || response.status >= 400) { await finish(response.status >= 400 ? "error" : "success"); return response; }
+    if (!response.body || response.status >= 400) { await finish(request.signal.aborted ? "cancelled" : response.status >= 400 ? "error" : "success"); return response; }
     return observeGeneration(response, {
       signal: request.signal,
+      deferEnd: true,
+      // Other routes may transform this response after the gateway (e.g. Ollama NDJSON).
+      observeEmpty: ["/v1/chat/completions", "/v1/v1/chat/completions", "/api/v1/chat/completions"].includes(new URL(request.url).pathname),
       async onFirstContent() {
         root.firstContent = performance.now();
         safeTelemetry("event", span, "client_first_content", { durationMs: elapsed(root.started) });
         const attempt = root.attempts.at(-1);
         if (attempt?.row) await persist(() => ledger.recordDownstreamFirstContent(attempt.row.attemptId, elapsed(attempt.started)));
       },
-      onEnd: (result) => finish(result.status === "cancelled" ? "cancelled" : result.status === "error" ? "error" : "success"),
+      onEnd: (result) => finish(result.status === "cancelled" ? "cancelled" : result.status === "error" ? "error" : "success", result.status === "completed"),
+      onConfirmedEmpty: () => safeTelemetry("confirmedEmptyStream", span),
     });
   } catch (error) {
     if (policyError(error)) {

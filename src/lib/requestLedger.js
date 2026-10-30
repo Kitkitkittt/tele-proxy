@@ -130,6 +130,23 @@ export async function startAttempt(requestId, fields = {}) {
   return result;
 }
 
+/** The caller must prove the transport callback was not invoked. */
+export async function discardUnsentAttempt(requestId, attemptId) {
+  if (!enabled()) return null;
+  const db = await database();
+  db.transaction(() => {
+    const attempt = db.get("SELECT * FROM teleProxyAttempts WHERE attempt_id = ?", [attemptId]);
+    if (!attempt) return;
+    if (attempt.request_id !== requestId) throw new Error("Attempt belongs to another request");
+    if (attempt.status !== "inflight" || attempt.ended_at !== null || attempt.upstream_first_content_ms !== null || attempt.downstream_first_content_ms !== null || attempt.invoice_reconciled_spend_micros !== null || attempt.subscription_allocation_micros !== null || attempt.local_infrastructure_allocation_micros !== null) throw new Error("Attempt has already been observed");
+    const count = db.run("UPDATE teleProxyRequests SET attempt_count = attempt_count - 1 WHERE request_id = ? AND completed_at IS NULL AND attempt_count > 0", [requestId]);
+    if (count.changes !== 1) throw new Error("Cannot release attempt from terminal or inconsistent request");
+    db.run("DELETE FROM teleProxyAttempts WHERE attempt_id = ? AND request_id = ?", [attemptId, requestId]);
+  });
+  db.flush?.();
+  return true;
+}
+
 /** Integer micro-currency arithmetic; one rounding step after all categories. */
 export function estimateMicros(usage, snapshot) {
   if (!snapshot || usage.usageSource === "unknown" || usage.inputTokens === null || usage.outputTokens === null) return null;
@@ -215,6 +232,22 @@ export async function finishRequest(requestId, fields = {}) {
   db.flush?.();
   return result;
 }
+/** Correct a failed client EOF acknowledgement after success was persisted. */
+export async function correctRequestEofOutcome(requestId, outcome) {
+  if (!enabled()) return null;
+  if (!["cancelled", "error"].includes(outcome)) throw new Error("Invalid EOF correction outcome");
+  const db = await database();
+  let result;
+  db.transaction(() => {
+    db.run("UPDATE teleProxyRequests SET final_status = ? WHERE request_id = ? AND completed_at IS NOT NULL AND final_status = 'success'", [outcome, requestId]);
+    const request = db.get("SELECT * FROM teleProxyRequests WHERE request_id = ?", [requestId]);
+    if (!request) throw new Error("Ledger request does not exist");
+    result = camel(request);
+  });
+  db.flush?.();
+  return result;
+}
+
 
 /** Startup only, before accepting traffic: never apply recovery to another running process. */
 export async function recoverAbandoned({ before = now() } = {}) {

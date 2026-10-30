@@ -38,7 +38,11 @@ export function withDispatchMetadata(details, callback) {
   return dispatchStorage.run({ ...store, details: { ...store.details, ...details } }, callback);
 }
 
-/** Mark only a generation transport call; its physical retries are counted by proxyFetch. */
+/** Mark only a generation transport call; its physical retries are counted by proxyFetch.
+ * Use this around a send that goes through the patched global `fetch`. Wrapping the
+ * send in `dispatchGeneration` instead marks the callback physical, which suppresses
+ * proxyFetch's own hook and hides a proxy→direct fallback or TLS retry from the ledger.
+ */
 export function withGenerationDispatch(details, callback) {
   const store = dispatchStorage.getStore();
   if (!store?.context) return callback();

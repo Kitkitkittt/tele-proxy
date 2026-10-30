@@ -4,7 +4,7 @@ import { transcribeGeminiLive } from "./geminiLiveStt.js";
 import { transcribeCodex } from "./codexStt.js";
 import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS } from "../config/providerModels.js";
 import { HTTP_STATUS } from "../config/runtimeConfig.js";
-import { dispatchGeneration, reportUnsupportedDispatch } from "../services/dispatchContext.js";
+import { withGenerationDispatch, reportUnsupportedDispatch } from "../services/dispatchContext.js";
 
 // Build auth headers from sttConfig + token
 function buildAuthHeaders(cfg, token) {
@@ -47,8 +47,9 @@ async function transcribeDeepgram(cfg, file, model, token, formData) {
   if (typeof lang === "string" && lang.trim()) url.searchParams.set("language", lang.trim());
   else url.searchParams.set("detect_language", "true");
 
+  // Patched global fetch; proxyFetch owns the physical attempt and signal check.
   const buf = await file.arrayBuffer();
-  const res = await dispatchGeneration({ requestedModel: model, policySupported: false, transport: "stt-http" }, () => fetch(url, {
+  const res = await withGenerationDispatch({ requestedModel: model, policySupported: false, transport: "stt-http" }, () => fetch(url, {
     method: "POST",
     headers: { ...buildAuthHeaders(cfg, token), "Content-Type": resolveAudioContentType(file) },
     body: buf,
@@ -62,6 +63,8 @@ async function transcribeDeepgram(cfg, file, model, token, formData) {
 // AssemblyAI: upload → submit → poll (max 120s)
 async function transcribeAssemblyAI(cfg, file, model, token) {
   const auth = buildAuthHeaders(cfg, token);
+  // Upload and poll below are ancillary: only the transcription submit is
+  // inference, so it alone carries the generation marker.
   const buf = await file.arrayBuffer();
   const up = await fetch("https://api.assemblyai.com/v2/upload", {
     method: "POST", headers: { ...auth, "Content-Type": "application/octet-stream" }, body: buf,
@@ -69,7 +72,7 @@ async function transcribeAssemblyAI(cfg, file, model, token) {
   if (!up.ok) return upstreamError(up);
   const { upload_url } = await up.json();
 
-  const sub = await dispatchGeneration({ requestedModel: model, policySupported: false, transport: "stt-http" }, () => fetch(cfg.baseUrl, {
+  const sub = await withGenerationDispatch({ requestedModel: model, policySupported: false, transport: "stt-http" }, () => fetch(cfg.baseUrl, {
     method: "POST",
     headers: { ...auth, "Content-Type": "application/json" },
     body: JSON.stringify({ audio_url: upload_url, speech_models: [model], language_detection: true }),
@@ -94,7 +97,7 @@ async function transcribeNvidia(cfg, file, model, token) {
   const fd = new FormData();
   fd.append("file", file, file.name || "audio.wav");
   fd.append("model", model);
-  const res = await dispatchGeneration({ requestedModel: model, policySupported: false, transport: "stt-http" }, () => fetch(cfg.baseUrl, { method: "POST", headers: buildAuthHeaders(cfg, token), body: fd }));
+  const res = await withGenerationDispatch({ requestedModel: model, policySupported: false, transport: "stt-http" }, () => fetch(cfg.baseUrl, { method: "POST", headers: buildAuthHeaders(cfg, token), body: fd }));
   if (!res.ok) return upstreamError(res);
   const data = await res.json();
   return jsonResponse({ text: data.text || data.transcript || "" });
@@ -113,7 +116,7 @@ async function transcribeGemini(cfg, file, model, token, formData) {
   if (typeof lang === "string" && lang.trim()) promptText += ` Language: ${lang.trim()}.`;
 
   const url = `${cfg.baseUrl}/${model}:generateContent?key=${token}`;
-  const res = await dispatchGeneration({ requestedModel: model, policySupported: false, transport: "stt-http", format: "gemini" }, () => fetch(url, {
+  const res = await withGenerationDispatch({ requestedModel: model, policySupported: false, transport: "stt-http", format: "gemini" }, () => fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -167,7 +170,7 @@ async function transcribeElevenLabs(cfg, file, model, token, formData) {
     fd.append("additional_formats", JSON.stringify([{ format: extraFormat }]));
   }
 
-  const res = await dispatchGeneration({ requestedModel: model, policySupported: false, transport: "stt-http" }, () => fetch(cfg.baseUrl, { method: "POST", headers: buildAuthHeaders(cfg, token), body: fd }));
+  const res = await withGenerationDispatch({ requestedModel: model, policySupported: false, transport: "stt-http" }, () => fetch(cfg.baseUrl, { method: "POST", headers: buildAuthHeaders(cfg, token), body: fd }));
   if (!res.ok) return upstreamError(res);
 
   const data = await res.json();
@@ -217,7 +220,7 @@ async function transcribeHuggingFace(cfg, file, model, token) {
   if (model.includes("..") || model.includes("//")) return createErrorResult(400, "Invalid model ID");
   const url = `${cfg.baseUrl.replace(/\/+$/, "")}/${model}`;
   const buf = await file.arrayBuffer();
-  const res = await dispatchGeneration({ requestedModel: model, policySupported: false, transport: "stt-http" }, () => fetch(url, {
+  const res = await withGenerationDispatch({ requestedModel: model, policySupported: false, transport: "stt-http" }, () => fetch(url, {
     method: "POST",
     headers: { ...buildAuthHeaders(cfg, token), "Content-Type": resolveAudioContentType(file) },
     body: buf,
@@ -236,7 +239,7 @@ async function transcribeOpenAICompatible(cfg, file, model, token, formData) {
     const v = formData.get(k);
     if (v !== null && v !== undefined && v !== "") fd.append(k, v);
   }
-  const res = await dispatchGeneration({ requestedModel: model, policySupported: false, transport: "stt-http" }, () => fetch(cfg.baseUrl, { method: "POST", headers: buildAuthHeaders(cfg, token), body: fd }));
+  const res = await withGenerationDispatch({ requestedModel: model, policySupported: false, transport: "stt-http" }, () => fetch(cfg.baseUrl, { method: "POST", headers: buildAuthHeaders(cfg, token), body: fd }));
   if (!res.ok) return upstreamError(res);
   const ct = res.headers.get("content-type") || "application/json";
   const txt = await res.text();

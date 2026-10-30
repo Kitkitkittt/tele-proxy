@@ -98,7 +98,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "Requests are finalized once; attempts include every actual dispatch. Success rate is an observed outcome, **not an active provider availability probe**. Rate-limit failures use the bounded `reason=\"rate_limit\"` label. `upstream_error` is not an exact HTTP 5xx count. There is no empty-stream counter or HTTP-status series in this contract; inspect correlated metadata logs and ledger attempt evidence. Alert thresholds are initial canary guardrails, not an approved production SLO."
+        "content": "Requests are finalized once; attempts represent observed dispatches. Success rate is an observed outcome, **not an active provider availability probe**. The 5xx panel counts HTTP 500–599 observed on instrumented upstream responses, not network failures, native-managed transports, or client-facing status codes. Missing data is unknown, not zero. Confirmed empty streams cover only a strict subset of client-facing OpenAI Chat SSE; all other streams are unknown. Alert thresholds are initial canary guardrails, not an approved production SLO."
       }
     },
     {
@@ -602,6 +602,54 @@
       }
     },
     {
+      "id": 13,
+      "title": "Observed upstream HTTP 5xx attempts",
+      "description": "5xx responses observed on instrumented HTTP attempts; excludes network failures and native-managed transports. Missing series is unknown, not zero.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 44,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (provider) (increase(nine_router_upstream_http_5xx_attempts_total{environment=~\"$environment\",job=\"tele-proxy-canary\"}[15m]))",
+          "legendFormat": "{{provider}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "lineInterpolation": "linear", "fillOpacity": 8, "spanNulls": false }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 14,
+      "title": "Confirmed empty client streams — limited OpenAI Chat SSE",
+      "description": "Only fully consumed, successful, strictly recognized canonical single-choice OpenAI Chat SSE with consistent bounded identity, stop and [DONE]. Other formats, ambiguous, failed, cancelled or unobserved streams are unknown, not non-empty. Missing series is unknown, not zero.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "x": 0, "y": 52, "w": 24, "h": 8 },
+      "targets": [{ "refId": "A", "expr": "sum by (combo) (increase(nine_router_confirmed_empty_streams_total{environment=~\"$environment\",job=\"tele-proxy-canary\"}[15m]))", "legendFormat": "{{combo}}", "range": true, "instant": false }],
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "lineInterpolation": "linear", "fillOpacity": 8, "spanNulls": false } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
       "id": 12,
       "title": "Pending / firing alerts \u2014 notifications disabled",
       "description": "Prometheus evaluates checked-in rules; no notification delivery is configured. Open Prometheus /alerts for annotations.",
@@ -612,7 +660,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 44,
+        "y": 60,
         "w": 24,
         "h": 7
       },

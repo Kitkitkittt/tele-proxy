@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// Dashboard tests do not need the unrelated global proxy patch or its dependency graph.
+vi.mock("open-sse/index.js", () => ({}));
+
 describe("xai/oauth service", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -21,7 +24,9 @@ describe("xai/oauth service", () => {
     );
   });
 
-  it("discovers endpoints without custom user-agent headers", async () => {
+  it("discovers endpoints without custom user-agent headers", async ({ signal }) => {
+    const { discoverEndpoints } = await import("../../src/lib/oauth/services/xai.js");
+    signal.throwIfAborted();
     fetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -30,7 +35,6 @@ describe("xai/oauth service", () => {
       }),
     });
 
-    const { discoverEndpoints } = await import("../../src/lib/oauth/services/xai.js");
     await expect(discoverEndpoints()).resolves.toEqual({
       authorizeUrl: "https://auth.x.ai/oauth2/authorize",
       tokenUrl: "https://auth.x.ai/oauth2/token",
@@ -63,63 +67,72 @@ describe("xai/oauth service", () => {
     expect(parsed.searchParams.get("referrer")).toBe("cli-proxy-api");
   });
 
-  it("generates dashboard auth data with CLIProxyAPI PKCE size and discovered endpoints", async () => {
-    fetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        authorization_endpoint: "https://auth.x.ai/oauth2/authorize-from-discovery",
-        token_endpoint: "https://auth.x.ai/oauth2/token-from-discovery",
-      }),
+  describe("dashboard", () => {
+    let dashboard;
+    beforeEach(async ({ signal }) => {
+      const providers = await import("../../src/lib/oauth/providers.js");
+      signal.throwIfAborted();
+      // Transitive provider imports can replace global fetch during module initialization.
+      vi.stubGlobal("fetch", vi.fn());
+      dashboard = providers;
     });
 
-    const { generateAuthData } = await import("../../src/lib/oauth/providers.js");
-    const data = await generateAuthData("xai", "http://127.0.0.1:56121/callback");
-    const parsed = new URL(data.authUrl);
-
-    expect(data.codeVerifier).toHaveLength(128);
-    expect(parsed.origin + parsed.pathname).toBe("https://auth.x.ai/oauth2/authorize-from-discovery");
-    expect(parsed.searchParams.get("redirect_uri")).toBe("http://127.0.0.1:56121/callback");
-    expect(parsed.searchParams.get("code_challenge_method")).toBe("S256");
-    expect(parsed.searchParams.get("plan")).toBe("generic");
-    expect(parsed.searchParams.get("referrer")).toBe("cli-proxy-api");
-  });
-
-  it("exchanges dashboard codes against the discovered xAI token endpoint", async () => {
-    const fetchMock = fetch;
-    fetchMock
-      .mockResolvedValueOnce({
+    it("generates dashboard auth data with CLIProxyAPI PKCE size and discovered endpoints", async () => {
+      fetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          authorization_endpoint: "https://auth.x.ai/oauth2/authorize",
+          authorization_endpoint: "https://auth.x.ai/oauth2/authorize-from-discovery",
           token_endpoint: "https://auth.x.ai/oauth2/token-from-discovery",
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          access_token: "access-token",
-          refresh_token: "refresh-token",
-          expires_in: 3600,
         }),
       });
 
-    const { exchangeTokens } = await import("../../src/lib/oauth/providers.js");
-    const tokens = await exchangeTokens(
-      "xai",
-      "auth-code",
-      "http://127.0.0.1:56121/callback",
-      "verifier-1",
-      "state-1"
-    );
+      const data = await dashboard.generateAuthData("xai", "http://127.0.0.1:56121/callback");
+      const parsed = new URL(data.authUrl);
 
-    expect(fetchMock.mock.calls[1][0]).toBe("https://auth.x.ai/oauth2/token-from-discovery");
-    expect(fetchMock.mock.calls[1][1].body.get("grant_type")).toBe("authorization_code");
-    expect(fetchMock.mock.calls[1][1].body.get("code")).toBe("auth-code");
-    expect(fetchMock.mock.calls[1][1].body.get("code_verifier")).toBe("verifier-1");
-    expect(tokens).toMatchObject({
-      accessToken: "access-token",
-      refreshToken: "refresh-token",
-      expiresIn: 3600,
+      expect(data.codeVerifier).toHaveLength(128);
+      expect(parsed.origin + parsed.pathname).toBe("https://auth.x.ai/oauth2/authorize-from-discovery");
+      expect(parsed.searchParams.get("redirect_uri")).toBe("http://127.0.0.1:56121/callback");
+      expect(parsed.searchParams.get("code_challenge_method")).toBe("S256");
+      expect(parsed.searchParams.get("plan")).toBe("generic");
+      expect(parsed.searchParams.get("referrer")).toBe("cli-proxy-api");
+    });
+
+    it("exchanges dashboard codes against the discovered xAI token endpoint", async () => {
+      const fetchMock = fetch;
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            authorization_endpoint: "https://auth.x.ai/oauth2/authorize",
+            token_endpoint: "https://auth.x.ai/oauth2/token-from-discovery",
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            access_token: "access-token",
+            refresh_token: "refresh-token",
+            expires_in: 3600,
+          }),
+        });
+
+      const tokens = await dashboard.exchangeTokens(
+        "xai",
+        "auth-code",
+        "http://127.0.0.1:56121/callback",
+        "verifier-1",
+        "state-1"
+      );
+
+      expect(fetchMock.mock.calls[1][0]).toBe("https://auth.x.ai/oauth2/token-from-discovery");
+      expect(fetchMock.mock.calls[1][1].body.get("grant_type")).toBe("authorization_code");
+      expect(fetchMock.mock.calls[1][1].body.get("code")).toBe("auth-code");
+      expect(fetchMock.mock.calls[1][1].body.get("code_verifier")).toBe("verifier-1");
+      expect(tokens).toMatchObject({
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+        expiresIn: 3600,
+      });
     });
   });
 });

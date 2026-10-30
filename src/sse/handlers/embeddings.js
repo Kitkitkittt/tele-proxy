@@ -160,6 +160,7 @@ export async function handleEmbeddings(request) {
       }
       return result.response;
     }
+    if (request.signal.aborted) return result.response;
 
     const { shouldFallback } = await markAccountUnavailable(credentials.connectionId, result.status, result.error, provider, model);
 

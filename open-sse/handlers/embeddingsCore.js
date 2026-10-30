@@ -3,7 +3,7 @@ import { HTTP_STATUS, FETCH_CONNECT_TIMEOUT_MS } from "../config/runtimeConfig.j
 import { getExecutor } from "../executors/index.js";
 import { refreshWithRetry } from "../services/tokenRefresh.js";
 import { getEmbeddingAdapter } from "./embeddingProviders/index.js";
-import { dispatchGeneration, getDispatchContext } from "../services/dispatchContext.js";
+import { withGenerationDispatch, getDispatchContext } from "../services/dispatchContext.js";
 
 /**
  * Core embeddings handler — orchestrator only. Provider-specific URL/headers/body/normalize
@@ -67,7 +67,9 @@ export async function handleEmbeddingsCore({
   const signal = accountingActive && clientSignal && timeoutSignal ? AbortSignal.any([clientSignal, timeoutSignal]) : accountingActive && clientSignal || timeoutSignal;
   const dispatchDetails = { provider, model, requestedModel: requestBody.model || model, usageKind: "embedding", format: ["gemini", "google_ai_studio"].includes(provider) ? "gemini" : "openai", policySupported: false, transport: "embeddings-http", signal };
   try {
-    providerResponse = await dispatchGeneration(dispatchDetails, () => fetch(url, {
+    // Patched global fetch: withGenerationDispatch leaves the physical send to
+    // proxyFetch, which also re-checks the signal before opening an attempt.
+    providerResponse = await withGenerationDispatch(dispatchDetails, () => fetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify(requestBody),
@@ -100,7 +102,7 @@ export async function handleEmbeddingsCore({
       try {
         const retryHeaders = adapter.buildHeaders(credentials, ctx);
         const retryUrl = adapter.buildUrl(model, credentials, ctx);
-        providerResponse = await dispatchGeneration(dispatchDetails, () => fetch(retryUrl, {
+        providerResponse = await withGenerationDispatch(dispatchDetails, () => fetch(retryUrl, {
           method: "POST",
           headers: retryHeaders,
           body: JSON.stringify(requestBody),

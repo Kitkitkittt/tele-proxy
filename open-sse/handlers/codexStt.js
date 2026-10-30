@@ -5,7 +5,7 @@ import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import codex from "../providers/registry/codex.js";
 import { convertAudio, readBounded, MAX_AUDIO_BYTES } from "./codexSttAudio.js";
 import { createErrorResult } from "../utils/error.js";
-import { withGenerationDispatch } from "../services/dispatchContext.js";
+import { dispatchPhysicalFetch, withGenerationDispatch } from "../services/dispatchContext.js";
 
 let active = 0;
 const failure = (status, message) => Object.assign(new Error(message), { status });
@@ -13,8 +13,12 @@ const cors = { "Access-Control-Allow-Origin": "*", "Cache-Control": "no-store" }
 
 // Keep the signal connected until the response body finishes, not just headers.
 export function codexHttpFetch(url, { headers, body, signal }) {
-  return new Promise((resolve, reject) => {
-    signal?.throwIfAborted();
+  signal?.throwIfAborted();
+  // This transport bypasses patched fetch (proxyFetch short-circuits to a
+  // directFetch before its own dispatch hook), so the physical send is marked
+  // here. The abort check above stays outside, so a cancelled request opens no
+  // attempt.
+  return dispatchPhysicalFetch({ signal, transport: "http-direct" }, () => new Promise((resolve, reject) => {
     const req = https.request(url, { method: "POST", headers, signal }, (res) => {
       const cleanup = () => signal?.removeEventListener("abort", abort);
       const abort = () => res.destroy(signal.reason || new Error("Aborted"));
@@ -36,7 +40,7 @@ export function codexHttpFetch(url, { headers, body, signal }) {
     });
     req.once("error", reject);
     req.end(body);
-  });
+  }));
 }
 
 export async function transcribeCodex({ formData, credentials, signal: clientSignal, proxyOptions }) {

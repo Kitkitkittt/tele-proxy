@@ -86,6 +86,61 @@ describe("sql.js ledger durability", () => {
     expect(reopened.get("SELECT status, input_tokens, output_tokens, downstream_first_content_ms FROM teleProxyAttempts WHERE attempt_id = ?", [attempt.attemptId])).toEqual({ status: "success", input_tokens: 10, output_tokens: 2, downstream_first_content_ms: 25 });
     expect(reopened.get("SELECT final_status FROM teleProxyRequests WHERE request_id = ?", [request.requestId])).toEqual({ final_status: "success" });
   });
+  it("durably deletes only the matching unsent attempt before writer close", async () => {
+    const adapter = await open();
+    createBase(adapter);
+    const ledger = await useLedger(adapter);
+    const request = await ledger.startRequest();
+    const removed = await ledger.startAttempt(request.requestId, { attemptId: "unsent-attempt" });
+    const kept = await ledger.startAttempt(request.requestId, { attemptId: "other-attempt" });
+
+    expect(await ledger.discardUnsentAttempt(request.requestId, removed.attemptId)).toBe(true);
+    const reopened = await open();
+    expect(reopened.get("SELECT attempt_id, status FROM teleProxyAttempts ORDER BY attempt_id")).toEqual({ attempt_id: kept.attemptId, status: "inflight" });
+    expect(reopened.get("SELECT attempt_count FROM teleProxyRequests WHERE request_id = ?", [request.requestId])).toEqual({ attempt_count: 1 });
+
+    expect(await ledger.discardUnsentAttempt(request.requestId, removed.attemptId)).toBe(true);
+    const repeated = await open();
+    expect(repeated.get("SELECT COUNT(*) AS n FROM teleProxyAttempts")).toEqual({ n: 1 });
+    expect(repeated.get("SELECT attempt_count FROM teleProxyRequests WHERE request_id = ?", [request.requestId])).toEqual({ attempt_count: 1 });
+  });
+
+  it("does not delete terminal or wrong-owner attempts", async () => {
+    const adapter = await open();
+    createBase(adapter);
+    const ledger = await useLedger(adapter);
+    const owner = await ledger.startRequest();
+    const other = await ledger.startRequest();
+    const terminal = await ledger.startAttempt(owner.requestId, { attemptId: "terminal-attempt" });
+    const inflight = await ledger.startAttempt(owner.requestId, { attemptId: "inflight-attempt" });
+    await ledger.finishAttempt(terminal.attemptId, { status: "success" });
+
+    await expect(ledger.discardUnsentAttempt(owner.requestId, terminal.attemptId)).rejects.toThrow();
+    await expect(ledger.discardUnsentAttempt(other.requestId, inflight.attemptId)).rejects.toThrow();
+    const reopened = await open();
+    expect(reopened.get("SELECT status, ended_at FROM teleProxyAttempts WHERE attempt_id = ?", [terminal.attemptId]).status).toBe("success");
+    expect(reopened.get("SELECT status, ended_at FROM teleProxyAttempts WHERE attempt_id = ?", [inflight.attemptId]).status).toBe("inflight");
+    expect(reopened.get("SELECT attempt_count FROM teleProxyRequests WHERE request_id = ?", [owner.requestId])).toEqual({ attempt_count: 2 });
+    expect(reopened.get("SELECT attempt_count FROM teleProxyRequests WHERE request_id = ?", [other.requestId])).toEqual({ attempt_count: 0 });
+  });
+
+  it.each(["fsyncSync", "renameSync"])("rejects failed %s acknowledgement when deleting an unsent attempt", async (operation) => {
+    const adapter = await open();
+    createBase(adapter);
+    const ledger = await useLedger(adapter);
+    const request = await ledger.startRequest();
+    const attempt = await ledger.startAttempt(request.requestId, { attemptId: "unsent-attempt" });
+    const previous = fs.readFileSync(file);
+    const failure = vi.spyOn(fs, operation).mockImplementationOnce(() => { throw new Error("synthetic disk failure"); });
+
+    await expect(ledger.discardUnsentAttempt(request.requestId, attempt.attemptId)).rejects.toThrow("synthetic disk failure");
+    expect(fs.readFileSync(file)).toEqual(previous);
+    failure.mockRestore();
+    const reopened = await open();
+    expect(reopened.get("SELECT status FROM teleProxyAttempts WHERE attempt_id = ?", [attempt.attemptId])).toEqual({ status: "inflight" });
+    expect(reopened.get("SELECT attempt_count FROM teleProxyRequests WHERE request_id = ?", [request.requestId])).toEqual({ attempt_count: 1 });
+  });
+
 
   it.each(["fsyncSync", "renameSync"])("rejects a failed %s acknowledgement and preserves the previous disk image", async (operation) => {
     const adapter = await open();

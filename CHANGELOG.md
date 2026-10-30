@@ -8,8 +8,12 @@
 - Dependency-ordered remaining-ticket plan distinguishing implemented behavior, missing physical-send/diagnostic/dashboard work, isolated backend acceptance and operator-only decisions; completed migration is not scheduled again.
 - Project-attributed, bounded metadata-only diagnostic capture with authenticated opt-in and expiry; general settings and database transfers exclude its state.
 - Alternating benchmark ordering and restore preflight with private Compose overrides; the fixed default network remains unchanged.
+- Count confirmed empty client streams only for fully consumed, loss-free canonical single-choice OpenAI Chat SSE with consistent bounded identity, stop and `[DONE]`; unknown, unsupported, failed and cancelled streams are excluded. Only bounded identity metadata is temporarily retained, not content beyond the current bounded message. The routing dashboard and runbook describe this limited coverage.
+- Count observed upstream HTTP 5xx responses on instrumented HTTP attempts, including DNS bypass, in a bounded-provider metric and routing dashboard. Native-managed transports and failures without an HTTP response remain outside its coverage.
 
 ## Fixed
+- Correct request outcomes when client cancellation races EOF persistence; confirmed-empty metrics wait for a successful close. A crash between the success commit and outcome correction can still leave success persisted.
+- Recheck cancellation after durable attempt reservation and before physical sends; release unsent reservations without inventing dispatch or usage metrics, distinguish client cancellation from internal transport timeout, and stop cancelled embedding requests before account fallback.
 - Preserve developer instructions through OpenAI-to-Anthropic translation and required policies independently of compression; reject known unsupported native preservation before dispatch.
 - Fence canary storage against production fallback and disable legacy raw key/body/error retention in feature mode.
 - Count smart-routing System One classification separately from the selected generation, retaining native decision schema and reported usage; abort classifier fetch/body reads on timeout or client cancellation. Required policies reject unsupported native classification before any generation send rather than silently bypassing enforcement.
@@ -23,6 +27,8 @@
 - Preserve malformed cache/reasoning usage markers through observation so ledger pricing remains unknown; cover project diagnostic authorization and attribution with isolated regressions.
 - Suppress Cursor protobuf debug logs in feature mode, including decoded tool names, while retaining feature-off debugging.
 - Reuse compiled static pricing/capability globs, query only the requested provider's pricing overrides, and reuse generation attributes at settlement without changing pricing precedence, usage accounting or durability.
+- Record each initiated embedding, REST transcription and video-creation transport dispatch separately, including proxy-to-direct and TLS retries. DNS, CONNECT or TLS can fail before a generation POST reaches the provider; an attempt does not prove provider receipt. Uploads, polling and discovery remain ancillary.
+- Record Codex transcription's direct `https.request` dispatch, previously bypassed by the proxy fetch hook. Proxy failure followed by direct fallback records both initiated dispatches; an already-cancelled request records none.
 - Repair stale offline-test transport boundaries, opt live-provider discovery in explicitly, skip absent cloud/ffmpeg prerequisites visibly, and remove the obsolete lowdb benchmark. Correction: removing the raw-key source assertion left a real disclosure undetected; the previous green suite did not qualify that security boundary.
 - Replace raw legacy usage-stat bucket names with SHA-256 identifiers after aggregation, preserving colliding-mask key separation and precise daily timestamps. Behavioral 24h/7d serialization checks replace source-text masking checks; no database credentials are deleted and no release is promoted.
 - Remove preauthorization cookie prefixes and attacker-controlled paths from Xiaomi login ingress diagnostics; use a finite feature-mode proxy-error event. Synthetic ingress regressions cover both feature modes, forged/undecodable sessions and unchanged 502 handling.

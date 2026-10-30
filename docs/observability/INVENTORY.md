@@ -2,9 +2,11 @@
 
 Bounded read-only host snapshot, refreshed **2026-10-30 UTC**. Checkout, deployed release and resource observations are current as of this session; they are **not** a security audit, capacity qualification or release acceptance, and production traffic changes them immediately.
 
-**Current pins.** Checkout `73fa569ae81f5eb3962975bcfb94ce8b26fcd9da` on `codex/1-tele-proxy`, clean. Upstream `upstream/master` still pinned at `3a978a631ad65529c06e48ce495092d5bba29f46` (9Router `0.5.111`); no fetch/rebase/upgrade. Deployed source `73fa569ae81f5eb3962975bcfb94ce8b26fcd9da`, release `73fa569a-20261029T190233Z`, 3,598 files, manifest `7c8d7a6e18893d66…`; see the [deploy record](TEST_REPORT.md#2026-10-30-egress-log-fixes-and-close-out-deploy-8c22d9a3). No Docker gateway image applies — this is a native systemd deployment.
+**Recorded deployment.** At the earlier refresh, checkout and deployed source were `73fa569ae81f5eb3962975bcfb94ce8b26fcd9da` on `codex/1-tele-proxy`. The checkout has since advanced and is under active development; it is not the deployed artifact. Upstream `upstream/master` was pinned at `3a978a631ad65529c06e48ce495092d5bba29f46` (9Router `0.5.111`). Deployed release `73fa569a-20261029T190233Z` has 3,598 files, manifest `7c8d7a6e18893d66…`; see the [deploy record](TEST_REPORT.md#2026-10-30-review-fix-and-redeploy-73fa569a). No Docker gateway image applies — this is a native systemd deployment.
 
 ## 2026-10-30 refresh
+
+At 03:50 UTC, the existing `tele-proxy.service` was active with `NRestarts=0`, and loopback `/api/health` returned HTTP 200. Root had approximately 23 GiB available and was 96% used; load averages were 18.70, 21.20 and 17.90. These are point-in-time observations, not sustained-capacity or inference proof. No monitoring storage was deployed.
 
 Collected with `git rev-parse/status`, `systemctl show/is-active/list-units`, `readlink`, `ss`, `df`, `free`, `getent`, `dig`, `node/npm --version`, client `--version`, `sudo -n docker info`, and a **read-only** SQLite connection. No environment, unit contents, credential files, request payloads or row data were printed.
 

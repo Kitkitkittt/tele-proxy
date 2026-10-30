@@ -1,3 +1,5 @@
+import { ROLE } from "../translator/schema/roles.js";
+
 // Side parsing only: bytes are never retained beyond the current bounded message,
 // changed, logged, or consumed ahead of the caller.
 const MESSAGE_LIMIT = 64 * 1024;
@@ -33,6 +35,21 @@ const usageSubsets = {
   prompt_tokens_details: ["cached_tokens"], input_tokens_details: ["cached_tokens"],
   completion_tokens_details: ["reasoning_tokens"], output_tokens_details: ["reasoning_tokens"],
 };
+// ponytail: Only known OpenAI usage metadata is trusted; add fields after their semantics are established.
+function emptyUsage(value) {
+  if (!object(value)) return false;
+  const counts = ["prompt_tokens", "completion_tokens", "total_tokens", "cached_tokens", "reasoning_tokens"];
+  const details = {
+    prompt_tokens_details: ["cached_tokens", "audio_tokens"],
+    completion_tokens_details: ["reasoning_tokens", "audio_tokens", "accepted_prediction_tokens", "rejected_prediction_tokens"],
+  };
+  const count = (entry) => Number.isSafeInteger(entry) && entry >= 0;
+  return Object.entries(value).every(([key, entry]) => counts.includes(key) ? count(entry)
+    : key === "estimated" ? typeof entry === "boolean"
+      : Object.hasOwn(details, key) && object(entry)
+        && Object.entries(entry).every(([nested, n]) => details[key].includes(nested) && count(n)));
+}
+
 
 // Copy numeric usage and explicitly allowlisted provenance only. Invalid known
 // subsets retain a null marker so accounting cannot mistake them for absent/zero.
@@ -64,7 +81,8 @@ function completeUsage(usage) {
 
 /**
  * Transparent, demand-driven observation of a physical or final client Response.
- * Callbacks are optional, awaited, and isolated from inference failures.
+ * Callbacks are optional and isolated from inference failures; onConfirmedEmpty
+ * is synchronous after a proven-empty SSE stream closes successfully.
  * onUsage(sanitizedUsageWithOptionalEstimateProvenance, responseModel?) runs at most once, before onEnd.
  * onEnd({status, errorClass, cancelState, usageComplete, responseModel}) runs once
  * on EOF, read failure, cancellation, or signal abort, never merely on headers.
@@ -75,7 +93,7 @@ function completeUsage(usage) {
  * Anthropic message_delta totals replace earlier totals, never accumulate.
  * usageComplete is false for missing/partial/oversized/unparseable usage.
  */
-export function observeGeneration(response, { signal, usageKind, onFirstContent, onUsage, onEnd } = {}) {
+export function observeGeneration(response, { signal, usageKind, onFirstContent, onUsage, onEnd, onConfirmedEmpty, observeEmpty = false, deferEnd = false } = {}) {
   const headers = new Headers(response.headers || undefined);
   const status = response.status ?? 200;
   const httpError = status >= 400;
@@ -88,6 +106,14 @@ export function observeGeneration(response, { signal, usageKind, onFirstContent,
   });
   const reader = normalized.body?.getReader();
   const decoder = new TextDecoder();
+  // ponytail: Only canonical single-choice OpenAI chat chunks are classified;
+  // widen the allowlist only with equally strict loss-aware protocol validation.
+  const strictDecoder = observeEmpty && format === "sse" ? new TextDecoder("utf-8", { fatal: true }) : null;
+  let emptyPossible = !!strictDecoder && status >= 200 && status < 300;
+  let emptyChoice = false;
+  let emptyStopped = false;
+  let emptyDone = false;
+  let emptyIdentity = null;
   let responseModel = null;
   let usage = null;
   let usageIsComplete = false;
@@ -99,6 +125,10 @@ export function observeGeneration(response, { signal, usageKind, onFirstContent,
   let firstContent = false;
   let finished = false;
   let finishPromise;
+  let interrupted = false;
+  let eofFinalization;
+  let resolveEofFinalization;
+  let confirmedEmpty = false;
   let controller;
   let line = "";
   let eventData = [];
@@ -115,10 +145,11 @@ export function observeGeneration(response, { signal, usageKind, onFirstContent,
 
   async function safeCall(callback, ...args) {
     if (typeof callback !== "function") return;
-    try { await callback(...args); } catch { /* Observation must not fail inference. */ }
+    try { return await callback(...args); } catch { /* Observation must not fail inference. */ }
   }
 
   function loseObservation() {
+    emptyPossible = false;
     usageIsComplete = false;
     // A later complete usage message can restore certainty after a dropped event.
     usage = null;
@@ -216,7 +247,43 @@ export function observeGeneration(response, { signal, usageKind, onFirstContent,
     observeUsage(value.usageMetadata);
   }
 
+  function observeEmptyMessage(text, name) {
+    if (!emptyPossible) return;
+    if (name && name !== "message") { emptyPossible = false; return; }
+    if (text === "[DONE]") {
+      if (!emptyChoice || !emptyStopped || emptyDone) emptyPossible = false;
+      else emptyDone = true;
+      return;
+    }
+    try {
+      const value = JSON.parse(text);
+      // Canonical JSON rejects duplicate keys, which JSON.parse would silently overwrite.
+      if (emptyDone || JSON.stringify(value) !== text || !object(value)
+        || value.object !== "chat.completion.chunk" || !Array.isArray(value.choices)
+        || value.choices.length !== 1
+        || Object.keys(value).some((key) => !["id", "object", "created", "model", "system_fingerprint", "service_tier", "choices", "usage"].includes(key))
+        || (Object.hasOwn(value, "usage") && !emptyUsage(value.usage))
+        || !nonempty(value.id) || value.id.length > 128 || !nonempty(value.model) || value.model.length > 128
+        || !Number.isSafeInteger(value.created) || value.created < 0
+        || (emptyIdentity && (value.id !== emptyIdentity.id || value.model !== emptyIdentity.model || value.created !== emptyIdentity.created))
+        || (value.system_fingerprint != null && typeof value.system_fingerprint !== "string")
+        || (value.service_tier != null && typeof value.service_tier !== "string")) throw new Error();
+      const choice = value.choices[0];
+      if (!object(choice) || choice.index !== 0 || !object(choice.delta)
+        || Object.keys(choice).some((key) => !["index", "delta", "finish_reason", "logprobs"].includes(key))
+        || (choice.logprobs != null) || !Object.hasOwn(choice, "finish_reason")
+        || ![null, "stop"].includes(choice.finish_reason) || emptyStopped
+        || Object.keys(choice.delta).some((key) => !["role", "content"].includes(key))
+        || (choice.delta.role !== undefined && choice.delta.role !== ROLE.ASSISTANT)
+        || (choice.delta.content !== undefined && choice.delta.content !== null && choice.delta.content !== "")) throw new Error();
+      emptyIdentity ??= { id: value.id, model: value.model, created: value.created };
+      emptyChoice = true;
+      if (choice.finish_reason === "stop") emptyStopped = true;
+    } catch { emptyPossible = false; }
+  }
+
   function parseMessage(text, name = "") {
+    if (observeEmpty) observeEmptyMessage(text, name);
     if (text.trim() === "[DONE]") { terminal = true; return; }
     if (!text.trim()) return;
     try {
@@ -234,6 +301,7 @@ export function observeGeneration(response, { signal, usageKind, onFirstContent,
       return;
     }
     if (!line && !discardLine) {
+      if (emptyPossible && !eventData.length && eventName) emptyPossible = false;
       if (!discardEvent && eventData.length) parseMessage(eventData.join("\n"), eventName);
       eventData = [];
       eventSize = 0;
@@ -246,6 +314,8 @@ export function observeGeneration(response, { signal, usageKind, onFirstContent,
       else eventData.push(data);
     } else if (!discardLine && !discardEvent && line.startsWith("event:")) {
       eventName = line.slice(line[6] === " " ? 7 : 6);
+    } else if (emptyPossible && line && !line.startsWith(":")) {
+      emptyPossible = false;
     }
     line = "";
     discardLine = false;
@@ -287,6 +357,10 @@ export function observeGeneration(response, { signal, usageKind, onFirstContent,
       if (jsonSize > JSON_LIMIT) { jsonOversized = true; json = ""; loseObservation(); return; }
     }
     for (let offset = 0; offset < bytes.byteLength; offset += DECODE_SLICE) {
+      if (emptyPossible) {
+        try { strictDecoder.decode(bytes.subarray(offset, offset + DECODE_SLICE), { stream: true }); }
+        catch { emptyPossible = false; }
+      }
       parseText(decoder.decode(bytes.subarray(offset, offset + DECODE_SLICE), { stream: true }));
     }
     if (firstPending) { firstPending = false; await safeCall(onFirstContent); }
@@ -295,9 +369,14 @@ export function observeGeneration(response, { signal, usageKind, onFirstContent,
   async function finish(kind, errorClass = null, cancelState = "none") {
     if (finished) return finishPromise;
     finished = true;
-    signal?.removeEventListener("abort", abort);
+    if (kind !== "completed") signal?.removeEventListener("abort", abort);
     finishPromise = (async () => {
       if (kind === "completed" && !httpError && format !== "unknown") {
+        if (emptyPossible) {
+          try { strictDecoder.decode(); } catch { emptyPossible = false; }
+          // Require a fully delimited final event, not the parser's EOF recovery.
+          if (line || eventData.length || eventName || discardLine || discardEvent) emptyPossible = false;
+        }
         parseText(decoder.decode());
         if (format === "json") {
           if (!jsonOversized) parseMessage(json);
@@ -314,7 +393,8 @@ export function observeGeneration(response, { signal, usageKind, onFirstContent,
       else if (kind === "completed" && providerError) { kind = "error"; errorClass = "provider_error"; }
       else if (kind === "completed" && incomplete) { kind = "error"; errorClass = "incomplete_stream"; }
       if (usage && !httpError) await safeCall(onUsage, usage, responseModel || undefined);
-      await safeCall(onEnd, {
+      confirmedEmpty = observeEmpty && kind === "completed" && !signal?.aborted && emptyPossible && emptyDone;
+      const finalizer = await safeCall(onEnd, {
         status: kind, errorClass, cancelState,
         usageComplete: !httpError && usageIsComplete && (format === "json" || terminal)
           && (!anthropic || anthropicOutputUsage),
@@ -323,18 +403,20 @@ export function observeGeneration(response, { signal, usageKind, onFirstContent,
       line = "";
       eventData = [];
       json = "";
+      emptyIdentity = null;
+      if (deferEnd && typeof finalizer === "function") return finalizer;
     })();
     return finishPromise;
   }
 
   function abort() {
     const reason = signal.reason ?? new DOMException("The operation was aborted", "AbortError");
+    interrupted = true;
     // Cancel the reader even before the downstream caller starts reading.
     const cancellation = reader ? reader.cancel(reason) : Promise.resolve();
     cancellation.catch(() => {});
-    void finish("cancelled", "aborted", "aborted").then(() => {
-      try { controller?.error(reason); } catch { /* Already closed/cancelled. */ }
-    });
+    try { controller?.error(reason); } catch { /* Already closed/cancelled. */ }
+    void finish("cancelled", "aborted", "aborted");
   }
 
   const body = reader ? new ReadableStream({
@@ -349,21 +431,42 @@ export function observeGeneration(response, { signal, usageKind, onFirstContent,
         const result = await reader.read();
         if (finished) return;
         if (result.done) {
-          await finish("completed");
-          streamController.close();
+          eofFinalization = new Promise((resolve) => { resolveEofFinalization = resolve; });
+          try {
+            const finalizer = await finish("completed");
+            if (interrupted || signal?.aborted) {
+              await safeCall(finalizer, "cancelled");
+            } else {
+              try { streamController.close(); }
+              catch (error) {
+                await safeCall(finalizer, "error");
+                throw error;
+              }
+              signal?.removeEventListener("abort", abort);
+              // No async gap between the final interruption check, close and telemetry.
+              if (typeof finalizer === "function") void safeCall(finalizer, "success");
+              if (confirmedEmpty) {
+                try { onConfirmedEmpty?.(); } catch { /* Observation must not fail inference. */ }
+              }
+            }
+          } finally { resolveEofFinalization(); }
         } else {
           try { await feed(result.value); } catch { loseObservation(); }
           if (!finished) streamController.enqueue(result.value);
         }
       } catch (error) {
+        signal?.removeEventListener("abort", abort);
         await finish("error", "stream_error");
         try { streamController.error(error); } catch { /* Cancelled concurrently. */ }
       }
     },
     async cancel(reason) {
+      interrupted = true;
+      signal?.removeEventListener("abort", abort);
       const cancellation = reader.cancel(reason);
       cancellation.catch(() => {});
       await finish("cancelled", "cancelled", "cancelled");
+      if (eofFinalization) await eofFinalization;
       await cancellation;
     },
   }, { highWaterMark: 0 }) : null;
