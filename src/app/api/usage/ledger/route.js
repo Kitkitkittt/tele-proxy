@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { verifyDashboardAuthToken } from "@/lib/auth/dashboardSession";
 import { isSameOriginRequest } from "@/lib/auth/requestOrigin";
-import { getLedgerSummary, getRequestAttempts, addTariff, setKeyAttribution, addFixedFee, reconcileAttempt, pruneLedger } from "@/lib/requestLedger";
+import { getLedgerSummary, getLedgerTokenViews, getRequestAttempts, addTariff, setKeyAttribution, addFixedFee, reconcileAttempt, pruneLedger } from "@/lib/requestLedger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,7 +27,7 @@ export async function GET(request) {
     if (params.has("from")) options.from = params.get("from");
     if (params.has("to")) options.to = params.get("to");
     if (params.has("limit")) options.limit = Number(params.get("limit"));
-    return json(await getLedgerSummary(options));
+    return json(await (params.get("view") === "token-views" ? getLedgerTokenViews(options) : getLedgerSummary(options)));
   } catch (error) {
     if (error.message === "Invalid ledger time range") return json({ error: error.message }, 400);
     return json({ error: "Ledger storage unavailable" }, 503);

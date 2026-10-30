@@ -60,6 +60,22 @@ export async function createMockProvider() {
     try { body = JSON.parse(raw.toString()); } catch { res.writeHead(400); res.end(); return; }
     const capture = { path: req.url, body, privateBaggageForwarded: Boolean(req.headers.baggage), started: performance.now(), completed: null };
     captures.push(capture);
+    if (req.url === '/gemini-relay') {
+      const target = req.headers['x-relay-target'];
+      const path = req.headers['x-relay-path'];
+      if (target !== 'https://generativelanguage.googleapis.com' || !/^\/v1beta\/models\/gemini-2\.5-flash:(?:generateContent|streamGenerateContent\?alt=sse)$/.test(path || '')) {
+        res.writeHead(400); res.end('unexpected synthetic relay target'); capture.completed = performance.now(); return;
+      }
+      capture.relayTarget = target; capture.relayPath = path;
+      const result = { candidates: [{ index: 0, content: { role: 'model', parts: [{ text: 'gemini-canary-ok' }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 20, totalTokenCount: 120, cachedContentTokenCount: 40 } };
+      if (path.includes(':streamGenerateContent')) {
+        res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
+        res.end(`data: ${JSON.stringify(result)}\n\n`);
+      } else {
+        res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(result));
+      }
+      capture.completed = performance.now(); return;
+    }
     if (req.url === '/v1/audio/speech' || req.url === '/image/canary-image') {
       const audio = req.url === '/v1/audio/speech';
       res.writeHead(200, { 'content-type': audio ? 'audio/mpeg' : 'image/png' });
@@ -224,16 +240,20 @@ async function seed(admin, enabled) {
     await admin('/api/providers', { provider: node.id, name: `canary-${name}`, apiKey: 'SYNTHETIC_UPSTREAM_SECRET_a7c21', testStatus: 'active' });
   }
   if (enabled) {
+    const { proxyPool } = await admin('/api/proxy-pools', { name: 'synthetic-gemini-relay', type: 'vercel', proxyUrl: `${mockBase}/gemini-relay`, isActive: true, strictProxy: true });
+    await admin('/api/providers', { provider: 'gemini', name: 'synthetic-gemini', apiKey: 'SYNTHETIC_UPSTREAM_SECRET_a7c21', proxyPoolId: proxyPool.id, testStatus: 'active' });
+  }
+  if (enabled) {
     for (const [provider, baseUrl] of [['huggingface', `${mockBase}/image`], ['selfhosted-tts', mockBase]]) {
       await admin('/api/providers', { provider, name: `synthetic-${provider}`, apiKey: 'SYNTHETIC_UPSTREAM_SECRET_a7c21', testStatus: 'active', providerSpecificData: { baseUrl } });
     }
   }
   const models = { normal: `${nodes.chat}/normal`, fallback: `${nodes.chat}/fallback-primary`, cross: `${nodes.chat}/fallback-primary-cross`, claude: `${nodes.claude}/claude`, responses: `${nodes.responses}/responses`, stream: `${nodes.chat}/stream`, cancel: `${nodes.chat}/cancel`, missing: `${nodes.chat}/missing-usage` };
   const combos = {};
-  for (const [name, candidates] of Object.entries({ normal: [models.normal], off: [`${nodes.chat}/off`], fallback: [models.fallback, `${nodes.chat}/fallback-success`], retry503: [`${nodes.chat}/fallback-primary-retry503`, `${nodes.chat}/retry503-success`], cross: [models.cross, `${nodes.claude}/cross-success`], crossresult: [`${nodes.chat}/fallback-primary-crossresult`, `${nodes.claude}/crossresult-success`], claude: [models.claude], responses: [models.responses], stream: [models.stream], cancel: [models.cancel], missing: [models.missing], benchmark: [`${nodes.chat}/benchmark`], invalid: [`${nodes.chat}/invalid`], ...(enabled ? { imageoff: ['huggingface/canary-image'], imagerequired: ['huggingface/canary-image'], speechoff: ['selfhosted-tts/kokoro/af_heart'], speechrequired: ['selfhosted-tts/kokoro/af_heart'] } : {}) })) {
+  for (const [name, candidates] of Object.entries({ normal: [models.normal], off: [`${nodes.chat}/off`], fallback: [models.fallback, `${nodes.chat}/fallback-success`], retry503: [`${nodes.chat}/fallback-primary-retry503`, `${nodes.chat}/retry503-success`], cross: [models.cross, `${nodes.claude}/cross-success`], crossresult: [`${nodes.chat}/fallback-primary-crossresult`, `${nodes.claude}/crossresult-success`], claude: [models.claude], responses: [models.responses], stream: [models.stream], cancel: [models.cancel], missing: [models.missing], benchmark: [`${nodes.chat}/benchmark`], invalid: [`${nodes.chat}/invalid`], ...(enabled ? { gemini: ['gemini/gemini-2.5-flash'], geminioff: ['gemini/gemini-2.5-flash'], geminireject: [`${nodes.chat}/normal`], imageoff: ['huggingface/canary-image'], imagerequired: ['huggingface/canary-image'], speechoff: ['selfhosted-tts/kokoro/af_heart'], speechrequired: ['selfhosted-tts/kokoro/af_heart'] } : {}) })) {
     const combo = await admin('/api/combos', { name: `canary-${name}`, models: candidates });
     combos[name] = combo;
-    if (enabled && !['off', 'imageoff', 'speechoff'].includes(name)) await admin(`/api/combos/${combo.id}/policy`, { policyId: 'quality-engineering', text: POLICY_TEXT, enabled: true, required: true, mergeMode: 'append_preserve_client', maxInjectedTokens: 600, expectedVersion: null }, 'PUT');
+    if (enabled && !['off', 'geminioff', 'imageoff', 'speechoff'].includes(name)) await admin(`/api/combos/${combo.id}/policy`, { policyId: 'quality-engineering', text: POLICY_TEXT, enabled: true, required: true, mergeMode: 'append_preserve_client', maxInjectedTokens: 600, expectedVersion: null }, 'PUT');
   }
   if (enabled) {
     await admin('/api/usage/ledger', { action: 'attribution', keyId: key.id, projectId: 'canary-approved', contractId: 'canary-contract' });
@@ -393,6 +413,47 @@ export async function runCanary({ samples = 40, concurrency = 2, runtime = 'deve
     assert.equal(claudeResponse.status, 200); await claudeResponse.text();
     const claudePayload = mock.captures[beforeClaude].body; assertPolicyPayload(claudePayload); assert.deepEqual(claudePayload.system[0], claudeSystem[0]); assert.deepEqual(claudePayload.messages[0].content[0].cache_control, { type: 'ephemeral' });
     cases.push({ name: 'anthropic-native-cache-blocks', passed: true });
+    const geminiRequest = {
+      systemInstruction: { parts: [{ text: 'First native Gemini instruction.' }, { text: 'Second native Gemini instruction.' }] },
+      contents: [{ role: 'user', parts: [{ text: 'Inspect the synthetic image.' }, { inlineData: { mimeType: 'image/png', data: 'aGVsbG8=' } }, { text: 'Then call the tool.' }] }],
+      tools: [{ functionDeclarations: [{ name: 'canary_tool', description: 'Synthetic tool', parameters: { type: 'OBJECT', properties: { value: { type: 'STRING' } }, required: ['value'] } }] }],
+      toolConfig: { functionCallingConfig: { mode: 'AUTO' } },
+      cachedContent: 'cachedContents/synthetic-canary',
+      generationConfig: { temperature: 0.25, topP: 0.8, maxOutputTokens: 64, responseMimeType: 'application/json' },
+    };
+    for (const [name, action, enabledPolicy] of [['gemini', 'generateContent', true], ['gemini', 'streamGenerateContent', true], ['geminioff', 'generateContent', false], ['geminioff', 'streamGenerateContent', false]]) {
+      const before = mock.captures.length;
+      const response = await fetch(`${base}/v1beta/models/canary-${name}:${action}${action === 'streamGenerateContent' ? '?alt=sse' : ''}`, { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body: JSON.stringify(geminiRequest) });
+      assert.equal(response.status, 200, `native Gemini ${name} ${action} response`);
+      if (action === 'streamGenerateContent') {
+        assert.match(response.headers.get('content-type') || '', /text\/event-stream/i);
+        const events = (await response.text()).split(/\r?\n/).filter(line => line.startsWith('data:')).map(line => JSON.parse(line.slice(5).trim()));
+        assert.ok(events.some(event => event.candidates?.some(candidate => candidate.content?.parts?.some(part => part.text === 'gemini-canary-ok'))), 'native Gemini SSE candidate');
+        assert.ok(events.some(event => event.candidates?.some(candidate => candidate.finishReason === 'STOP')), 'native Gemini SSE completion');
+      } else {
+        assert.match(response.headers.get('content-type') || '', /application\/json/i);
+        const result = await response.json();
+        assert.equal(result.candidates?.[0]?.content?.parts?.[0]?.text, 'gemini-canary-ok');
+        assert.equal(result.candidates?.[0]?.finishReason, 'STOP');
+      }
+      const captures = mock.captures.slice(before);
+      assert.equal(captures.length, 1, 'native Gemini physical dispatch count');
+      const capture = captures[0];
+      assert.equal(capture.path, '/gemini-relay');
+      assert.equal(capture.relayTarget, 'https://generativelanguage.googleapis.com');
+      assert.equal(capture.relayPath, `/v1beta/models/gemini-2.5-flash:${action}${action === 'streamGenerateContent' ? '?alt=sse' : ''}`);
+      assert.equal(capture.privateBaggageForwarded, false);
+      assertPolicyPayload(capture.body, enabledPolicy);
+      assert.deepEqual(capture.body.systemInstruction.parts, [...geminiRequest.systemInstruction.parts, ...(enabledPolicy ? [{ text: POLICY_TEXT }] : [])], 'ordered Gemini instruction parts and policy');
+      for (const field of ['contents', 'tools', 'toolConfig', 'cachedContent', 'generationConfig']) assert.deepEqual(capture.body[field], geminiRequest[field], `native Gemini preserves ${field}`);
+      assert.equal(Object.hasOwn(capture.body, 'stream'), false, 'Gemini stream selected by URL');
+      cases.push({ name: `gemini-${enabledPolicy ? 'required' : 'off'}-${action}`, passed: true, dispatches: captures.length });
+    }
+    const beforeGeminiReject = mock.captures.length;
+    const geminiReject = await fetch(`${base}/v1beta/models/canary-geminireject:generateContent`, { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body: JSON.stringify(geminiRequest) });
+    assert.equal(geminiReject.status, 422, 'required policy rejects lossy Gemini bridge'); await geminiReject.text();
+    assert.equal(mock.captures.length, beforeGeminiReject, 'lossy Gemini bridge rejected before dispatch');
+    cases.push({ name: 'gemini-required-lossy-bridge-zero-dispatch', passed: true, dispatches: 0 });
     await exercise('stream', { stream: true, stream_options: { include_usage: true } });
     await exercise('missing', { stream: true });
     const cancelStart = mock.captures.length, controller = new AbortController();
@@ -453,6 +514,10 @@ export async function runCanary({ samples = 40, concurrency = 2, runtime = 'deve
       assert.equal(off.policyAppliedStatus, 'off', `${kind} off policy status`);
       assert.equal(off.attempts[0].usageSource, 'unknown'); assert.equal(off.attempts[0].meteredCostEstimateMicros, null);
     }
+    const geminiRejected = ledger.recentRequests.find(r => r.requestedAlias === 'canary-geminireject');
+    assert.ok(geminiRejected, 'Gemini rejected logical request recorded');
+    assert.equal(geminiRejected.attempts.length, 0, 'Gemini required policy rejection has no physical attempts');
+    assert.notEqual(geminiRejected.policyAppliedStatus, 'applied', 'rejected Gemini policy not reported as applied');
     assert.equal(ledger.recentRequests.length, ledger.requests, 'all synthetic requests included in numeric reconciliation');
     const metered = ledger.recentRequests.flatMap(r => r.attempts).map(a => a.meteredCostEstimateMicros).filter(v => v !== null);
     const total = ledger.totals.find(t => t.currency === 'USD');

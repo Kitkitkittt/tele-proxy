@@ -15,9 +15,9 @@ Most code-bearing slices have implementation and bounded evidence; the tickets r
 | #6 | Implemented; bases separated | Reconcile newly covered transports only. |
 | #7 | Implemented after the SSRF and logging fixes | No open redaction path identified in this pass. |
 | #8 | Mapping proven synthetically only | **Blocked**: needs a running Langfuse stack and the Enterprise retention entitlement. |
-| #9 | Artifacts pinned, validated offline | **Blocked** on host capacity: the 2026-10-30 03:50 UTC root snapshot showed approximately 23 GiB free and 96% used, below the ≥10 GiB reserve plus 20% free rule. |
-| #10 | Four dashboards and 15 rules exist | **Blocked** on the #9 stack for Loki/datasource proof; the missing-signal classification table is now written. |
-| #11 | 4,659 offline tests passed; 25/25 cases ×10 on an earlier candidate | **Blocked**: the earlier `<10 ms` gate passed 4/10 runs; the present candidate still requires a fresh build and exact-artifact qualification. |
+| #9 | Artifacts pinned, validated offline | The 05:49 UTC root snapshot showed 139 GiB free and 69% used, above the earlier disk-only reserve threshold; sustained capacity, storage deployment authorization, Compose health and growth remain unqualified. |
+| #10 | Four dashboards, 15 rules and authenticated combo/project token views exist | **Blocked** on the #9 stack for Loki/datasource proof; token subtotals and coverage were exercised with synthetic ledger data, not the full dashboard stack. |
+| #11 | 4,659 offline tests passed; candidate `1f410f3e` completed 25/25 cases in all ten synthetic runs | **Blocked**: only 4/10 runs met the `<10 ms` additional p95 gate; exact candidate and all ten results are recorded in [TEST_REPORT.md](TEST_REPORT.md#2026-10-30-frozen-candidate-1f410f3e-qualification). Production was not switched. |
 | #12 | Docs complete; native deploy recorded | **Blocked** on #8/#9 for the backend-volume restore drill; the consolidated per-plane status block is now written. |
 ## Current objective and authority
 

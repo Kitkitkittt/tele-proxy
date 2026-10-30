@@ -6,6 +6,8 @@ Bounded read-only host snapshot, refreshed **2026-10-30 UTC**. Checkout, deploye
 
 ## 2026-10-30 refresh
 
+At 05:51 UTC, root had **139 GiB available, 69% used**, and 13% of inodes used. RAM was 23 GiB total with 14 GiB available; load averages were 8.23, 8.13 and 8.94 on four logical CPUs. Docker server `29.1.3` and Compose `2.40.3` responded. The gateway remained active/running with `NRestarts=0` and its release symlink still pointed to `73fa569a-20261029T190233Z`. These are momentary observations, not sustained-capacity, new monitoring authorization, recovery or deployment proof. No services were started or stopped.
+
 At 03:50 UTC, the existing `tele-proxy.service` was active with `NRestarts=0`, and loopback `/api/health` returned HTTP 200. Root had approximately 23 GiB available and was 96% used; load averages were 18.70, 21.20 and 17.90. These are point-in-time observations, not sustained-capacity or inference proof. No monitoring storage was deployed.
 
 Collected with `git rev-parse/status`, `systemctl show/is-active/list-units`, `readlink`, `ss`, `df`, `free`, `getent`, `dig`, `node/npm --version`, client `--version`, `sudo -n docker info`, and a **read-only** SQLite connection. No environment, unit contents, credential files, request payloads or row data were printed.

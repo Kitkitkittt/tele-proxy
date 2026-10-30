@@ -929,3 +929,109 @@ describe("ledger admin route permission boundary", () => {
     expect((await GET(new Request("http://localhost/api/usage/ledger?from=invalid"))).status).toBe(400);
   });
 });
+
+describe("ledger token views route", () => {
+  it("requires dashboard authentication before reading the ledger", async () => {
+    const { GET, verifyDashboardAuthToken } = await adminRoute();
+    const response = await GET(new Request("http://localhost/api/usage/ledger?view=token-views", {
+      headers: { authorization: "Bearer forged", "x-api-key": "forged", "x-project-id": "project-a" },
+    }));
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "Unauthorized" });
+    expect(verifyDashboardAuthToken).toHaveBeenCalledWith(undefined);
+    expect(getAdapter).not.toHaveBeenCalled();
+  });
+
+  it("serves authenticated persisted cohort counts and token coverage with no-store", async () => {
+    await attribute();
+    const request = await ledger.startRequest({ authenticatedKeyId: "key-a", resolvedCombo: "combo-a" });
+    const known = await ledger.startAttempt(request.requestId, { provider: "openai", requestedModel: "m" });
+    await ledger.finishAttempt(known.attemptId, { usage: { prompt_tokens: 0, completion_tokens: 4 } });
+    const unknown = await ledger.startAttempt(request.requestId, { provider: "openai", requestedModel: "m" });
+    await ledger.finishAttempt(unknown.attemptId, { usage: {} });
+    await ledger.finishRequest(request.requestId, { status: "success" });
+    await ledger.startRequest({ resolvedCombo: "combo-b" });
+    const { GET, verifyDashboardAuthToken } = await adminRoute(true);
+    const response = await GET(new Request(`http://localhost/api/usage/ledger?view=token-views&from=${TIME}&to=${TIME}&limit=1`));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const result = await response.json();
+    const row = { requests: 1, incompleteRequests: 1, attempts: 2, reportedAttempts: 1,
+      estimatedAttempts: 0, unknownAttempts: 1, inputTokens: 0, outputTokens: 4 };
+    expect(result).toMatchObject({ enabled: true, from: TIME, to: TIME, limit: 1,
+      combos: { rows: [{ id: "combo-a", ...row }], truncated: true },
+      projects: { truncated: true } });
+    expect(JSON.stringify(result)).not.toContain("secret-key-a");
+    expect(verifyDashboardAuthToken).toHaveBeenCalledWith("dashboard-session");
+  });
+
+  it("rejects invalid ranges and returns disabled state without storage access", async () => {
+    const { GET } = await adminRoute(true);
+    const invalid = await GET(new Request("http://localhost/api/usage/ledger?view=token-views&from=invalid"));
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toEqual({ error: "Invalid ledger time range" });
+    expect(getAdapter).not.toHaveBeenCalled();
+    vi.stubEnv("TELE_PROXY_ENABLED", "0");
+    const disabled = await GET(new Request("http://localhost/api/usage/ledger?view=token-views"));
+    expect(disabled.status).toBe(200);
+    expect(await disabled.json()).toEqual({ enabled: false });
+    expect(getAdapter).not.toHaveBeenCalled();
+  });
+});
+
+describe("bounded ledger token views", () => {
+  it("attributes request cohorts without multiplying requests or turning unknown usage into zero", async () => {
+    await attribute();
+    const request = await ledger.startRequest({ authenticatedKeyId: "key-a", resolvedCombo: "combo-a" });
+    const reported = await ledger.startAttempt(request.requestId, { provider: "openai", requestedModel: "m" });
+    await ledger.finishAttempt(reported.attemptId, { usage: { prompt_tokens: 10, completion_tokens: 0 } });
+    const estimated = await ledger.startAttempt(request.requestId, { provider: "openai", requestedModel: "m" });
+    await ledger.finishAttempt(estimated.attemptId, { usage: { prompt_tokens: 3, completion_tokens: 2, estimated: true } });
+    const unknown = await ledger.startAttempt(request.requestId, { provider: "openai", requestedModel: "m" });
+    await ledger.finishAttempt(unknown.attemptId, { usage: { prompt_tokens: 99 } });
+    await ledger.finishRequest(request.requestId, { status: "success" });
+    await ledger.setKeyAttribution({ keyId: "key-a", projectId: "project-b", contractId: "contract-a" });
+    await ledger.startRequest({ authenticatedKeyId: "key-a", resolvedCombo: "combo-b" });
+    const unassigned = await ledger.startRequest({ authenticatedKeyId: "not-an-existing-key" });
+    const unassignedAttempt = await ledger.startAttempt(unassigned.requestId, { provider: "openai", requestedModel: "m" });
+    await ledger.finishAttempt(unassignedAttempt.attemptId, { usage: { prompt_tokens: 0, completion_tokens: 0 } });
+
+    const views = await ledger.getLedgerTokenViews({ from: TIME, to: TIME });
+    const row = { requests: 1, incompleteRequests: 1, attempts: 3, reportedAttempts: 1,
+      estimatedAttempts: 1, unknownAttempts: 1, inputTokens: 13, outputTokens: 2 };
+    expect(views.combos.rows.find(item => item.id === "combo-a")).toEqual({ id: "combo-a", ...row });
+    expect(views.projects.rows.find(item => item.id === "project-a")).toEqual({ id: "project-a", ...row });
+    expect(views.projects.rows.find(item => item.id === "project-b")).toMatchObject({ requests: 1, attempts: 0, inputTokens: null, outputTokens: null });
+    expect(views.projects.rows.find(item => item.id === null)).toMatchObject({ requests: 1, attempts: 1, inputTokens: 0, outputTokens: 0 });
+    expect(JSON.stringify(views)).not.toContain("secret-key-a");
+    expect(views.combos.truncated).toBe(false);
+    expect(views.projects.truncated).toBe(false);
+  });
+
+  it("includes later attempts for in-range requests and marks limited groups as truncated", async () => {
+    const first = await ledger.startRequest({ resolvedCombo: "a" });
+    await ledger.startRequest({ resolvedCombo: "b" });
+    vi.setSystemTime(new Date("2026-10-27T12:01:00.000Z"));
+    const attempt = await ledger.startAttempt(first.requestId, { provider: "openai", requestedModel: "m" });
+    await ledger.finishAttempt(attempt.attemptId, { usage: { prompt_tokens: 5, completion_tokens: 1 } });
+    await ledger.startRequest({ resolvedCombo: "excluded" });
+    const views = await ledger.getLedgerTokenViews({ from: TIME, to: TIME, limit: 1 });
+    expect(views).toMatchObject({ from: TIME, to: TIME, limit: 1,
+      combos: { truncated: true, rows: [{ id: "a", requests: 1, attempts: 1, inputTokens: 5, outputTokens: 1 }] },
+      projects: { truncated: false, rows: [{ id: null, requests: 2, attempts: 1 }] } });
+    await expect(ledger.getLedgerTokenViews({ from: "invalid" })).rejects.toThrow("Invalid ledger time range");
+    await expect(ledger.getLedgerTokenViews({ from: TIME, to: "2026-01-01" })).rejects.toThrow("Invalid ledger time range");
+  });
+
+  it("returns null rather than an unsafe token sum and preserves feature-off behavior", async () => {
+    const request = await ledger.startRequest({ resolvedCombo: "large" });
+    for (const count of [Number.MAX_SAFE_INTEGER, 1]) {
+      const attempt = await ledger.startAttempt(request.requestId, { provider: "openai", requestedModel: "m" });
+      await ledger.finishAttempt(attempt.attemptId, { usage: { prompt_tokens: count, completion_tokens: 0 } });
+    }
+    const views = await ledger.getLedgerTokenViews();
+    expect(views.combos.rows[0]).toMatchObject({ id: "large", inputTokens: null, outputTokens: 0, reportedAttempts: 2 });
+    vi.stubEnv("TELE_PROXY_ENABLED", "0");
+    expect(await ledger.getLedgerTokenViews()).toEqual({ enabled: false });
+  });
+});

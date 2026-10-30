@@ -82,6 +82,8 @@ Subscription marginal cost is zero only when an administrator supplies a subscri
 
 `/api/usage/ledger` requires a valid existing dashboard JWT even when ordinary dashboard login is disabled. POST rejects cross-origin mutation and non-JSON/oversized configuration. No inference API key grants ledger administration. GET accepts ISO `from`, `to`, bounded `limit`, or `requestId` to inspect attempts. Responses use `Cache-Control: no-store`.
 
+`GET /api/usage/ledger?view=token-views` groups request cohorts by snapshotted combo and approved project. The inclusive `from`/`to` range selects requests by receipt time and includes all attempts belonging to each selected request. Each breakdown is ranked by logical request count and capped at `limit` (default 25, maximum 100); `truncated` indicates omitted groups. Input/output values are subtotals from reported and estimated usage, not complete totals; unknown attempts, incomplete requests, missing attribution and unsafe sums remain explicit. The Ledger tab defaults this breakdown to the preceding seven days when From is blank, independently of the all-history summary default, and displays the effective UTC range.
+
 POST actions (camelCase fields):
 
 - `attribution`: `keyId`, `projectId`, `contractId`. Key ID must already exist; project/contract are approved opaque administrative IDs.

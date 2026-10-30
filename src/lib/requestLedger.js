@@ -298,6 +298,47 @@ export async function getLedgerSummary({ from = "1970-01-01T00:00:00.000Z", to =
     priceSnapshots: db.all("SELECT * FROM teleProxyTariffs ORDER BY created_at DESC LIMIT 100").map(row => ({ ...camel(row), snapshot: JSON.parse(row.snapshot) })),
   };
 }
+
+/** Request-time cohorts; attempt tokens are known-source subtotals, not complete totals. */
+export async function getLedgerTokenViews({ from = "1970-01-01T00:00:00.000Z", to = now(), limit = 25 } = {}) {
+  if (!enabled()) return { enabled: false };
+  if (!Number.isFinite(Date.parse(from)) || !Number.isFinite(Date.parse(to)) || Date.parse(from) > Date.parse(to)) throw new Error("Invalid ledger time range");
+  const db = await database();
+  const range = [new Date(from).toISOString(), new Date(to).toISOString()];
+  const boundedLimit = Math.min(100, Math.max(1, integer(limit) ?? 25));
+  const groups = column => {
+    const rows = db.all(`WITH cohort AS (
+      SELECT request_id, ${column} AS id, accounting_completeness FROM teleProxyRequests
+      WHERE received_at >= ? AND received_at <= ?
+    ), per_request AS (
+      SELECT c.request_id, c.id, c.accounting_completeness,
+        COUNT(a.attempt_id) AS attempts,
+        SUM(CASE WHEN a.usage_source = 'reported' THEN 1 ELSE 0 END) AS reported_attempts,
+        SUM(CASE WHEN a.usage_source = 'estimated' THEN 1 ELSE 0 END) AS estimated_attempts,
+        SUM(CASE WHEN a.attempt_id IS NOT NULL AND a.usage_source NOT IN ('reported', 'estimated') THEN 1 ELSE 0 END) AS unknown_attempts,
+        COUNT(CASE WHEN a.usage_source IN ('reported', 'estimated') AND a.input_tokens IS NOT NULL THEN 1 END) AS input_count,
+        COUNT(CASE WHEN a.usage_source IN ('reported', 'estimated') AND a.output_tokens IS NOT NULL THEN 1 END) AS output_count,
+        TOTAL(CASE WHEN a.usage_source IN ('reported', 'estimated') THEN a.input_tokens END) AS input_tokens,
+        TOTAL(CASE WHEN a.usage_source IN ('reported', 'estimated') THEN a.output_tokens END) AS output_tokens
+      FROM cohort c LEFT JOIN teleProxyAttempts a ON a.request_id = c.request_id
+      GROUP BY c.request_id, c.id, c.accounting_completeness
+    ) SELECT id, COUNT(*) AS requests,
+      SUM(CASE WHEN accounting_completeness != 'complete' THEN 1 ELSE 0 END) AS incomplete_requests,
+      SUM(attempts) AS attempts, SUM(reported_attempts) AS reported_attempts,
+      SUM(estimated_attempts) AS estimated_attempts, SUM(unknown_attempts) AS unknown_attempts,
+      SUM(input_count) AS input_count, SUM(output_count) AS output_count,
+      TOTAL(input_tokens) AS input_tokens, TOTAL(output_tokens) AS output_tokens
+    FROM per_request GROUP BY id ORDER BY requests DESC, id ASC LIMIT ?`, [...range, boundedLimit + 1]);
+    return { rows: rows.slice(0, boundedLimit).map(row => {
+      const { input_count, output_count, ...rest } = row;
+      return camel({ ...rest,
+        input_tokens: input_count && Number.isSafeInteger(row.input_tokens) ? row.input_tokens : null,
+        output_tokens: output_count && Number.isSafeInteger(row.output_tokens) ? row.output_tokens : null });
+    }), truncated: rows.length > boundedLimit };
+  };
+  return { enabled: true, from: range[0], to: range[1], limit: boundedLimit,
+    combos: groups("resolved_combo"), projects: groups("approved_project_id") };
+}
 export async function getRequestAttempts(requestId) {
   if (!enabled()) return [];
   const db = await database();

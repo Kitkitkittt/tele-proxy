@@ -528,3 +528,39 @@ Restored state: both Gemini paths again call `reportUnsupportedDispatch({reason:
 - The confirmed-empty metric deliberately recognizes only fully consumed, successful canonical single-choice OpenAI Chat SSE. The upstream-5xx metric excludes native-managed transports and failures without a response. Missing series are unknown, not zero. Gemini Web and Muse physical-send attribution remain incomplete; no guessed browser-generation discriminator is enabled.
 - Cancellation concurrent with client EOF can require a persisted-outcome correction. A crash between the success commit and that correction can leave success recorded; stream close and database commit are not atomic.
 
+#### 2026-10-30 frozen candidate `1f410f3e` qualification
+
+The exact source `1f410f3e73e93eb23e2d663e4e98ee7ad64586ee` was built with the feature disabled in an isolated home/state. The locked offline `npm ci` initially omitted optional `better-sqlite3` when its native install failed; a repeat using matching Node 24.20.0 headers built the locked 12.11.1 dependency and a SQLite in-memory query succeeded. The successful build fetched the actual Inter font over the network and retained the existing `lazyRuntime.js` webpack warnings. This is a native build, not an image qualification.
+
+The standalone artifact contained 3,599 files. Its SHA-256 identity was `68cc357420d1b713f9c9c9662b5a8b1d07eaf6b8e6ed55474c2646743a5e6314`, using sorted relative paths, file hashes and explicit file/link markers. Recomputing after all runs produced the same identity when excluding the newly generated `.next/server/route-cache` directory; hashing that cache as part of the artifact changes the digest. The 24 prerendered HTML files contained no detected GA host, `gtag` call, or measurement ID. This is not proof of browser network or all privacy gates.
+
+Ten credential-free, loopback-only production canaries ran serially with the same artifact: Intel i5-6300HQ, Linux x64, Node 24.20.0, 40 indexed samples per mode, six warmups, 10 ms mock provider delay. Every run completed all **25/25 synthetic behavior cases**. The additional gateway p95 estimates, in milliseconds, were:
+
+| Concurrency | Run | Order | Off p95 | On p95 | Additional | Gate |
+|---|---|---|---:|---:|---:|---|
+| 1 | 1 | off-on | 63.568 | 52.101 | -11.467 | pass |
+| 1 | 2 | on-off | 53.333 | 136.408 | +83.075 | fail |
+| 1 | 3 | off-on | 50.936 | 95.829 | +44.893 | fail |
+| 1 | 4 | on-off | 26.676 | 33.565 | +6.890 | pass |
+| 1 | 5 | off-on | 30.387 | 28.943 | -1.444 | pass |
+| 2 | 1 | off-on | 44.327 | 67.872 | +23.545 | fail |
+| 2 | 2 | on-off | 36.638 | 48.171 | +11.533 | fail |
+| 2 | 3 | off-on | 42.989 | 70.619 | +27.630 | fail |
+| 2 | 4 | on-off | 65.700 | 65.172 | -0.528 | pass |
+| 2 | 5 | off-on | 39.265 | 444.988 | +405.723 | fail |
+
+**Performance qualification failed: 4/10 runs passed.** Each failure exited 2; behavior success does not override the owner's ten-run hold. The host was busy, but these results do not identify the cause of the tails. Full JSON, stderr and exit statuses plus a private copy of the tested standalone are retained under `~/.local/share/tele-proxy/qualifications/1f410f3e-20261030T051409Z`; the copied artifact's 3,599-file identity matched. The source and artifact were not promoted; production remains on `73fa569a-20261029T190233Z`. Langfuse, full monitoring, backend restore, live inference and the broader physical-send accounting gaps remain unverified.
+
+**Subsequent diagnostic, not qualification:** an isolated, credential-free canary at concurrency 2 with SQL timing and timestamped `strace` passed 25/25 behavior cases and missed the p95 gate by +57.579 ms. Instrumentation changes timing. Two enabled-mode requests' ~18 ms SQLite `RELEASE` intervals each overlapped same-process WAL and database-file `fsync` calls (18.235 ms release with 6.789 ms/3.820 ms syncs; 18.933 ms release with 6.365 ms/3.366 ms syncs), and an attempt UPDATE in the first overlapped a 3.152 ms WAL sync. This establishes a repeatable temporal association across two request windows, not that sync explains the ten qualification tails; the trigger (automatic versus timer checkpoint) remains indistinguishable and unproven. Diagnostic events, syscalls, method and result are retained privately alongside the qualification; SQLite settings and accounting acknowledgments were unchanged. No optimization or gate pass is claimed.
+
+**Checkpoint micro-benchmark, not qualification:** isolated `node:sqlite` savepoint-plus-insert loops (3,000–8,000 commits per run) reproduced commit stalls over 10 ms only with the current default 1,000-page `wal_autocheckpoint`; disabling auto-checkpoint removed the `>10 ms` commits in 5/5 runs. An explicit `wal_checkpoint(TRUNCATE)` rather than an automatic checkpoint can take ~10–240 ms, so a timer-only PASSIVE design would trade commit stalls for a wider acknowledged-write window before the next sync. **No pragma change was made or proposed as safe**; the durability contract stands and the cause of the qualification tails remains unidentified.
+
+#### 2026-10-30 source-only token views and native Gemini canary
+
+- Authenticated token views group request cohorts by snapshotted combo or approved project and preserve unknown usage and truncated groups. `tests/unit/request-ledger.test.js` passed **140 tests** in isolated synthetic state, one worker, with external networking denied; this is not a full-suite result for the pending changes.
+- Chromium rendered the actual Ledger tab with synthetic SQLite data: one request, two attempts, one reported and one unknown, and 100 input/20 output tokens under both the combo and project. An empty historical date range, restoring the range, Refresh and invalid range rejection were exercised. The Next development server ran in a loopback-only namespace and used a local socket bridge; production was not contacted. One earlier run with an unexcluded development build directory encountered HTTP 500/recompilation, so the successful run used the existing watcher-excluded `.next-cli-build` directory.
+- The loopback-only development canary completed **30/30 synthetic behavior cases**, including native Gemini JSON and SSE policy-on/off, client structure preservation and rejection before dispatch. It exited **2**: 10 samples at concurrency 1 measured **+33.361 ms** additional p95 against the `<10 ms` target. This is development-runtime evidence, not production-artifact qualification, and does not supersede the 4/10 frozen-candidate gate failure.
+- Independent static reviews of the token aggregation/API/UI and synthetic Gemini canary found no actionable findings in their scoped files. Current changes are not deployed. Full monitoring/Compose/Loki, Langfuse retention/ingestion, backend restore and browser physical-send attribution remain open.
+- Re-check after replacing the two synchronous effect-body `setState` resets with key-derived loading state in `RequestLedgerTab.js`: ESLint clean; `unit/request-ledger.test.js` **140/140** from `tests/`; Chromium in the isolated fixture again rendered the summary, token breakdowns, the recent-request table and the selected request's two attempts, and rejected an inverted date range then restored the blank range. One earlier run of that dev server accidentally bound `0.0.0.0:20286` and fetched the real models.dev catalog; it was stopped immediately and the re-run used `--hostname 127.0.0.1` with `MODEL_CATALOG_SYNC=off`. No production state was touched.
+
+

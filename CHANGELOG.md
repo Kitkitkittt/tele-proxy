@@ -10,6 +10,8 @@
 - Alternating benchmark ordering and restore preflight with private Compose overrides; the fixed default network remains unchanged.
 - Count confirmed empty client streams only for fully consumed, loss-free canonical single-choice OpenAI Chat SSE with consistent bounded identity, stop and `[DONE]`; unknown, unsupported, failed and cancelled streams are excluded. Only bounded identity metadata is temporarily retained, not content beyond the current bounded message. The routing dashboard and runbook describe this limited coverage.
 - Count observed upstream HTTP 5xx responses on instrumented HTTP attempts, including DNS bypass, in a bounded-provider metric and routing dashboard. Native-managed transports and failures without an HTTP response remain outside its coverage.
+- Authenticated ledger token breakdowns by snapshotted combo and approved project, including request/attempt coverage, known-usage subtotals and explicit unknowns.
+- Synthetic native Gemini JSON/SSE policy-on and policy-off wire checks in the canary; no live provider traffic is required.
 
 ## Fixed
 - Correct request outcomes when client cancellation races EOF persistence; confirmed-empty metrics wait for a successful close. A crash between the success commit and outcome correction can still leave success persisted.

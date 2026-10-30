@@ -93,33 +93,35 @@ function Metadata({ record, fields }) {
 }
 
 function RequestAttempts({ request, refresh }) {
-  const [state, setState] = useState({ loading: true, error: "", attempts: [] });
+  const key = `${request.requestId}\u0000${refresh}`;
+  const [state, setState] = useState({ key: null, error: "", attempts: [] });
   useEffect(() => {
     const controller = new AbortController();
-    setState({ loading: true, error: "", attempts: [] });
     fetchLedger(new URLSearchParams({ requestId: request.requestId }), controller.signal)
       .then((data) => {
         if (controller.signal.aborted) return;
         if (data.enabled === false) throw new Error("The request ledger is disabled. Refresh the ledger view.");
         if (!Array.isArray(data.attempts)) throw new Error("Invalid attempt response.");
-        setState({ loading: false, error: "", attempts: data.attempts });
+        setState({ key, error: "", attempts: data.attempts });
       })
       .catch((error) => {
-        if (!controller.signal.aborted) setState({ loading: false, error: error.message || "Unable to load attempts.", attempts: [] });
+        if (!controller.signal.aborted) setState({ key, error: error.message || "Unable to load attempts.", attempts: [] });
       });
     return () => controller.abort();
-  }, [request.requestId, refresh]);
+  }, [request.requestId, refresh, key]);
+  const loading = state.key !== key;
+  const attempts = loading ? [] : state.attempts;
 
   return (
     <section id="ledger-request-detail" aria-labelledby="ledger-request-heading" className="flex min-w-0 flex-col gap-4">
       <h3 id="ledger-request-heading" className="font-semibold text-text-main">Selected request and upstream attempts</h3>
       <Metadata record={request} fields={REQUEST_FIELDS} />
-      {state.loading && <p role="status" className="text-sm text-text-muted">Loading attempts…</p>}
+      {loading && <p role="status" className="text-sm text-text-muted">Loading attempts…</p>}
       {state.error && <p role="alert" className="text-sm text-red-500">{state.error} Use Refresh to retry.</p>}
-      {!state.loading && !state.error && state.attempts.length === 0 && <p className="text-sm text-text-muted">No upstream attempts recorded for this request.</p>}
-      {state.attempts.length > 0 && (
+      {!loading && !state.error && attempts.length === 0 && <p className="text-sm text-text-muted">No upstream attempts recorded for this request.</p>}
+      {attempts.length > 0 && (
         <LedgerTable caption="Upstream attempts for the selected logical request" headings={["Sequence / status", "Provider / models", "Usage provenance", "Input / output tokens", "Cache / reasoning tokens", "Cost coverage / evidence"]}>
-          {state.attempts.map((attempt) => (
+          {attempts.map((attempt) => (
             <tr key={attempt.attemptId}>
               <th scope="row">{attempt.sequence}<br /><span className="font-normal">{valueText(attempt.status)}</span></th>
               <td>{valueText(attempt.provider)}<div className="break-all text-xs text-text-muted">Requested: {valueText(attempt.requestedModel)}<br />Returned: {valueText(attempt.responseModel)}</div></td>
@@ -147,30 +149,77 @@ function RequestAttempts({ request, refresh }) {
   );
 }
 
+function TokenBreakdowns({ query }) {
+  const [state, setState] = useState({ loading: true, error: "", data: null });
+  useEffect(() => {
+    const controller = new AbortController();
+    const params = new URLSearchParams(query);
+    const to = params.get("to") || new Date().toISOString();
+    params.set("to", to);
+    if (!params.has("from")) params.set("from", new Date(new Date(to).getTime() - 7 * 86400000).toISOString());
+    params.set("view", "token-views");
+    fetchLedger(params, controller.signal).then((data) => {
+      if (controller.signal.aborted) return;
+      if (typeof data.enabled !== "boolean" || (data.enabled && (!Array.isArray(data.combos?.rows) || !Array.isArray(data.projects?.rows)))) throw new Error("Invalid token breakdown response.");
+      setState({ loading: false, error: "", data });
+    }).catch((error) => {
+      if (!controller.signal.aborted) setState({ loading: false, error: error.message || "Unable to load token breakdowns.", data: null });
+    });
+    return () => controller.abort();
+  }, [query]);
+
+  const data = state.data;
+  return (
+    <Card padding="md">
+      <h2 className="font-semibold text-text-main">Tokens by combo and project</h2>
+      <p className="mt-1 text-sm text-text-muted">Requests received in the inclusive window include all their attempts, even outside the window. A blank From uses seven days before To; a blank To uses the current time.</p>
+      {state.loading && <p role="status" className="mt-4 text-sm text-text-muted">Loading token breakdowns…</p>}
+      {state.error && <p role="alert" className="mt-4 text-sm text-red-500">{state.error} Use Refresh to retry.</p>}
+      {data?.enabled === false && <p role="status" className="mt-4 text-sm text-text-muted">Request accounting is disabled.</p>}
+      {data?.enabled && <div className="mt-4 space-y-5">
+        <p className="text-sm text-text-muted">Request received window (inclusive, UTC): {data.from} to {data.to}. Token values are known-usage subtotals (reported and estimated), not complete totals. Unknown means no known usage or a value too large to represent safely. Incomplete requests include missing cost evidence as well as usage.</p>
+        {[["Combo", data.combos], ["Project", data.projects]].map(([label, group]) => <section key={label}>
+          <h3 className="mb-2 font-semibold text-text-main">{label} breakdown</h3>
+          {group.truncated && <p className="mb-2 text-sm text-text-muted">Results truncated to {data.limit} groups; omitted groups are not included.</p>}
+          {group.rows.length === 0 ? <p className="text-sm text-text-muted">No requests in this window.</p> : <LedgerTable caption={`${label} request and token breakdown`} headings={[label, "Logical requests", "Incomplete requests", "Attempts", "Reported / estimated / unknown attempts", "Known input / output tokens"]}>
+            {group.rows.map((row) => <tr key={row.id === null ? "unknown-attribution" : `id:${row.id}`}>
+              <th scope="row" className="break-all">{row.id === null ? "Unknown attribution" : row.id}</th>
+              <td>{valueText(row.requests)}</td><td>{valueText(row.incompleteRequests)}</td><td>{valueText(row.attempts)}</td>
+              <td>Reported: {valueText(row.reportedAttempts)}<br />Estimated: {valueText(row.estimatedAttempts)}<br />Unknown: {valueText(row.unknownAttempts)}</td>
+              <td>Input: {valueText(row.inputTokens)}<br />Output: {valueText(row.outputTokens)}</td>
+            </tr>)}
+          </LedgerTable>}
+        </section>)}
+      </div>}
+    </Card>
+  );
+}
+
 export default function RequestLedgerTab() {
   const [range, setRange] = useState({ from: "", to: "" });
   const [query, setQuery] = useState("");
   const [rangeError, setRangeError] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [selectedId, setSelectedId] = useState(null);
-  const [state, setState] = useState({ loading: true, error: "", data: null });
+  const [state, setState] = useState({ key: null, error: "", data: null });
+
+  const key = `${query}\u0000${refresh}`;
 
   useEffect(() => {
     const controller = new AbortController();
-    setState({ loading: true, error: "", data: null });
     fetchLedger(query, controller.signal)
       .then((data) => {
         if (controller.signal.aborted) return;
         if (typeof data.enabled !== "boolean" || (data.enabled && (!data.coverage || !Array.isArray(data.recentRequests) || !Array.isArray(data.totals) || !Array.isArray(data.fixedFees) || !Array.isArray(data.priceSnapshots)))) {
           throw new Error("Invalid ledger summary response.");
         }
-        setState({ loading: false, error: "", data });
+        setState({ key, error: "", data });
       })
       .catch((error) => {
-        if (!controller.signal.aborted) setState({ loading: false, error: error.message || "Unable to load the request ledger.", data: null });
+        if (!controller.signal.aborted) setState({ key, error: error.message || "Unable to load the request ledger.", data: null });
       });
     return () => controller.abort();
-  }, [query, refresh]);
+  }, [query, refresh, key]);
 
   function applyRange(event) {
     event.preventDefault();
@@ -189,7 +238,8 @@ export default function RequestLedgerTab() {
     setRefresh((value) => value + 1);
   }
 
-  const data = state.data;
+  const loading = state.key !== key;
+  const data = loading ? null : state.data;
   const selectedRequest = data?.recentRequests?.find((request) => request.requestId === selectedId);
 
   return (
@@ -206,15 +256,15 @@ export default function RequestLedgerTab() {
               </div>
             ))}
           </div>
-          <p id="ledger-range-help" className="text-xs text-text-muted">Blank dates include all available history through now. Apply range updates the view; Refresh reloads the applied range. Requests use received time, attempts use dispatch time, and fixed fees use overlapping billing periods.</p>
+          <p id="ledger-range-help" className="text-xs text-text-muted">Blank dates include all available history through now for the summary. The token breakdown uses a seven-day default when From is blank. Apply range updates the view; Refresh reloads the applied range. Summary requests use received time, attempts use dispatch time, and fixed fees use overlapping billing periods.</p>
           {rangeError && <p id="ledger-range-error" role="alert" className="text-sm text-red-500">{rangeError}</p>}
           <div className="flex flex-wrap gap-2">
-            <Button type="submit" disabled={state.loading}>Apply range</Button>
-            <Button type="button" variant="secondary" disabled={state.loading} onClick={() => setRefresh((value) => value + 1)}>Refresh</Button>
+            <Button type="submit" disabled={loading}>Apply range</Button>
+            <Button type="button" variant="secondary" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>Refresh</Button>
           </div>
         </form>
       </Card>
-      {state.loading && <p role="status" className="text-sm text-text-muted">Loading request ledger…</p>}
+      {loading && <p role="status" className="text-sm text-text-muted">Loading request ledger…</p>}
       {state.error && <Card padding="md"><p role="alert" className="text-sm text-red-500">{state.error} Use Refresh to retry.</p></Card>}
       {data?.enabled === false && <Card padding="md"><p role="status" className="text-sm text-text-muted">Request accounting is disabled. An administrator must enable TELE_PROXY_ENABLED=1 on the server to collect and view the ledger. Historical reference estimates are not imported as actual charges.</p></Card>}
       {data?.enabled && (
@@ -231,6 +281,7 @@ export default function RequestLedgerTab() {
             </dl>
             {data.requests === 0 && data.attempts === 0 && <p className="mt-4 text-sm text-text-muted">No request or attempt records in this range.</p>}
           </Card>
+          <TokenBreakdowns key={refresh} query={query} />
           <Card padding="md">
             <h2 className="font-semibold text-text-main">Independent monetary bases</h2>
             <p className="mb-4 mt-1 text-sm text-text-muted">Each amount sums recorded values only, not unknowns. Bases and currencies are never added together. API-equivalent value is not cash spend or guaranteed savings; allocations are not additional provider charges. Amounts retain micro-unit precision.</p>
